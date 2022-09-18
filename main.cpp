@@ -98,7 +98,7 @@ int main() {
       winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
 
   for (const auto &control : activeProfile.controls) {
-    if (control.suffix != "*") continue;
+    if (control.suffix != ":device") continue;
     winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
     // To be consistent with later controls overriding earlier ones when they
     // both match the same executable, do not early exit.
@@ -119,15 +119,27 @@ int main() {
     // but it's up to the application to set that and many do not. `sndvol` has
     // to create a fallback in that case, we opt to instead match the executable
     // path.
-    //
-    // TODO: Support setting the system sounds volume.
+
+    // For the system process we can't get executable path from the PID, but
+    // we can still get the PID, which is zero. We actually can use
+    // `GetDisplayName` in this case, because the system process sets it,
+    // but rather than trying to match on that or relying on the PID we can
+    // instead use `IAudioSessionControl2::IsSystemSoundsSession`, which sounds
+    // much more reliable.
+    if (sessionCtrl2->IsSystemSoundsSession() == S_OK) {
+      for (const auto &control : activeProfile.controls) {
+        if (control.suffix != ":system") continue;
+        const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
+        volume->SetMasterVolume(control.relative_volume, nullptr);
+        std::cout << "Set volume of system sounds to " << control.relative_volume << '\n';
+      }
+
+      continue;
+    }
 
     DWORD pid;
     winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
-    if (pid == 0) {
-      // System idle process
-      continue;
-    }
+    // PID should be nonzero since we've already handled the system sounds.
 
     const winrt::handle procHnd{::OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};

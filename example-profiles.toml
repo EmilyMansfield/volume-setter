@@ -1,6 +1,7 @@
 [default]
 controls = [
-    { suffix = "*", volume = 0.26 },
+    { suffix = ":system", volume = 0.1 },
+    { suffix = ":device", volume = 0.26 },
     { suffix = "\\steam.exe", volume = 0.3 },
     { suffix = "\\chrome.exe", volume = 0.9 },
 ]

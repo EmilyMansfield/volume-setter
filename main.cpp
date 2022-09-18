@@ -16,7 +16,7 @@ namespace em {
 /**
  * Return a view over the session controls enumerated by a session enumerator.
  */
-inline auto get_audio_sessions(IAudioSessionEnumerator *sessionEnum) {
+inline auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEnum) {
   int numSessions;
   winrt::check_hresult(sessionEnum->GetCount(&numSessions));
 
@@ -25,6 +25,43 @@ inline auto get_audio_sessions(IAudioSessionEnumerator *sessionEnum) {
            winrt::check_hresult(sessionEnum->GetSession(i, sessionCtrl.put()));
            return sessionCtrl;
          });
+}
+
+/**
+ * Return a view over the session controls for the sessions on an audio device.
+ */
+inline auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
+  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
+  winrt::check_hresult(device->Activate(
+      winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
+
+  winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
+  winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
+
+  return em::get_audio_sessions(sessionEnum);
+}
+
+/**
+ * Return the default output multimedia audio device.
+ */
+inline auto get_default_audio_device() {
+  const auto deviceEnumerator{winrt::create_instance<IMMDeviceEnumerator>(
+      winrt::guid_of<MMDeviceEnumerator>(), CLSCTX_ALL, nullptr)};
+
+  winrt::com_ptr<IMMDevice> device;
+  winrt::check_hresult(deviceEnumerator->GetDefaultAudioEndpoint(
+      EDataFlow::eRender, ERole::eMultimedia, device.put()));
+
+  return device;
+}
+
+/**
+ * Return the PID of the process managing the audio session.
+ */
+inline DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
+  DWORD pid;
+  winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
+  return pid;
 }
 
 struct VolumeControl {
@@ -76,6 +113,65 @@ std::string get_process_image_name(const winrt::handle &processHandle) {
 
   return procName;
 }
+
+/**
+ * Set the volume of the device to that specified in the profile.
+ *
+ * The device volume is given by controls with suffix `:device`. Like actual
+ * suffixes, if there are multiple controls with this suffix then whichever
+ * comes last takes precedence.
+ */
+inline void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr<IMMDevice> &device) {
+  winrt::com_ptr<IAudioEndpointVolume> deviceVolume;
+  winrt::check_hresult(device->Activate(
+      winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
+
+  for (const auto &control : profile.controls) {
+    if (control.suffix != ":device") continue;
+    winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
+    std::cout << "Set volume of device to " << control.relative_volume << '\n';
+    // To be consistent with later controls overriding earlier ones when they
+    // both match the same executable, do not early exit.
+  }
+}
+
+/**
+ * Set the system sound volume to that specified in the profile.
+ *
+ * The system sound volume is given by controls with suffix `:system`. Like
+ * actual suffixes, if there are multiple controls with this suffix then
+ * whichever comes last takes precedence. `sessionCtrl` must be the system
+ * sounds sessions.
+ */
+inline void set_system_sound_volume(const VolumeProfile &profile,
+                                    const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+  for (const auto &control : profile.controls) {
+    if (control.suffix != ":system") continue;
+
+    const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
+    volume->SetMasterVolume(control.relative_volume, nullptr);
+    std::cout << "Set volume of system sounds to " << control.relative_volume << '\n';
+  }
+}
+
+/**
+ * Set the volume of a session with the given process image path.
+ *
+ * The last volume control whose suffix matches the `procName` is used to set
+ * the volume of the given session, which must be managed by a process with the
+ * given name.
+ */
+inline void set_session_volume(const VolumeProfile &profile,
+                               std::string_view procName,
+                               const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+  for (const auto &control : profile.controls) {
+    if (!procName.ends_with(control.suffix)) continue;
+
+    const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
+    volume->SetMasterVolume(control.relative_volume, nullptr);
+    std::cout << "Set volume of " << procName << " to " << control.relative_volume << '\n';
+  }
+}
 }// namespace em
 
 int main() {
@@ -86,32 +182,10 @@ int main() {
 
   winrt::init_apartment();
 
-  const auto deviceEnumerator{winrt::create_instance<IMMDeviceEnumerator>(
-      winrt::guid_of<MMDeviceEnumerator>(), CLSCTX_ALL, nullptr)};
+  const auto device{em::get_default_audio_device()};
+  em::set_device_volume(activeProfile, device);
 
-  winrt::com_ptr<IMMDevice> device;
-  winrt::check_hresult(deviceEnumerator->GetDefaultAudioEndpoint(
-      EDataFlow::eRender, ERole::eMultimedia, device.put()));
-
-  winrt::com_ptr<IAudioEndpointVolume> deviceVolume;
-  winrt::check_hresult(device->Activate(
-      winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
-
-  for (const auto &control : activeProfile.controls) {
-    if (control.suffix != ":device") continue;
-    winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
-    // To be consistent with later controls overriding earlier ones when they
-    // both match the same executable, do not early exit.
-  }
-
-  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
-  winrt::check_hresult(device->Activate(
-      winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
-
-  winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
-  winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
-
-  for (const auto &sessionCtrl : em::get_audio_sessions(sessionEnum.get())) {
+  for (const auto &sessionCtrl : em::get_audio_sessions(device)) {
     const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
 
     // To get reliable name information about the session we need the PID of
@@ -127,36 +201,20 @@ int main() {
     // instead use `IAudioSessionControl2::IsSystemSoundsSession`, which sounds
     // much more reliable.
     if (sessionCtrl2->IsSystemSoundsSession() == S_OK) {
-      for (const auto &control : activeProfile.controls) {
-        if (control.suffix != ":system") continue;
-        const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
-        volume->SetMasterVolume(control.relative_volume, nullptr);
-        std::cout << "Set volume of system sounds to " << control.relative_volume << '\n';
-      }
-
+      em::set_system_sound_volume(activeProfile, sessionCtrl);
       continue;
     }
 
-    DWORD pid;
-    winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
+    const auto pid{em::get_process_id(sessionCtrl2)};
     // PID should be nonzero since we've already handled the system sounds.
-
     const winrt::handle procHnd{::OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
     if (!procHnd) {
       std::cerr << "Failed to open process with PID " << pid << '\n';
       continue;
     }
-
     const auto procName{em::get_process_image_name(procHnd)};
-
-    for (const auto &control : activeProfile.controls) {
-      if (!procName.ends_with(control.suffix)) continue;
-
-      const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
-      volume->SetMasterVolume(control.relative_volume, nullptr);
-      std::cout << "Set volume of " << procName << " to " << control.relative_volume << '\n';
-    }
+    em::set_session_volume(activeProfile, procName, sessionCtrl);
   }
 
   return 0;

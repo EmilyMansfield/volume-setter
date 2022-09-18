@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_executable(volume_setter main.cpp)
 
-target_compile_options(volume_setter PRIVATE /await /utf-8)
+target_compile_options(volume_setter PRIVATE /await /utf-8 /W4)
 target_link_libraries(volume_setter PRIVATE
         Microsoft::CppWinRT
         toml11::toml11

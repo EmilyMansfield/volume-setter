@@ -4,8 +4,27 @@
 #include <winrt/base.h>
 
 #include <iostream>
+#include <ranges>
 #include <string>
 #include <vector>
+
+namespace em {
+
+/**
+ * Return a view over the session controls enumerated by a session enumerator.
+ */
+inline auto get_audio_sessions(IAudioSessionEnumerator *sessionEnum) {
+  int numSessions;
+  winrt::check_hresult(sessionEnum->GetCount(&numSessions));
+
+  return std::views::iota(0, numSessions) | std::views::transform([sessionEnum](int i) {
+           winrt::com_ptr<IAudioSessionControl> sessionCtrl;
+           winrt::check_hresult(sessionEnum->GetSession(i, sessionCtrl.put()));
+           return sessionCtrl;
+         });
+}
+
+}// namespace em
 
 int main() {
   float globalVolume = 0.27f;
@@ -40,13 +59,7 @@ int main() {
   winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
   winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
 
-  int numSessions;
-  winrt::check_hresult(sessionEnum->GetCount(&numSessions));
-  std::wcout << "Found " << numSessions << " audio sessions\n";
-
-  for (int i = 0; i < numSessions; ++i) {
-    winrt::com_ptr<IAudioSessionControl> sessionCtrl;
-    winrt::check_hresult(sessionEnum->GetSession(i, sessionCtrl.put()));
+  for (const auto &sessionCtrl : em::get_audio_sessions(sessionEnum.get())) {
     const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
 
     // To get reliable name information about the session we need the PID of
@@ -67,7 +80,7 @@ int main() {
     const winrt::handle procHnd{::OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
     if (!procHnd) {
-      std::wcerr << "Failed to open process with PID " << pid << " for audio session " << i << '\n';
+      std::wcerr << "Failed to open process with PID " << pid << '\n';
       continue;
     }
 
@@ -77,8 +90,6 @@ int main() {
     auto procNameSize{static_cast<DWORD>(procName.size())};
     winrt::check_bool(::QueryFullProcessImageNameW(procHnd.get(), 0, procName.data(), &procNameSize));
     procName.resize(procNameSize);
-
-    std::wcout << "Session " << i << ": " << procName << '\n';
 
     for (const auto &entry : volumes) {
       if (!procName.ends_with(entry.first)) continue;

@@ -1,6 +1,9 @@
+#include <toml.hpp>
+
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
+
 #include <winrt/base.h>
 
 #include <iostream>
@@ -24,18 +27,36 @@ inline auto get_audio_sessions(IAudioSessionEnumerator *sessionEnum) {
          });
 }
 
+struct VolumeControl {
+  std::string suffix;
+  float relative_volume;
+};
+
+struct VolumeProfile {
+  std::vector<VolumeControl> controls;
+};
 }// namespace em
 
 int main() {
-  float globalVolume = 0.27f;
-  // The value displayed by sndvol is the product of this value and the
-  // volume of the device (globalVolume), e.g. overall volume 26 with master
-  // volume for steam set to 0.23 displays steam as 6.
-  // These strings are matched against the end of the process image name.
-  std::vector<std::pair<std::wstring, float>> volumes{
-      {L"\\chrome.exe", 0.9f},
-      {L"\\steam.exe", 0.3f},
-  };
+  std::map<std::string, em::VolumeProfile> profiles;
+
+  auto data{toml::parse("example-profiles.toml")};
+  for (const auto &section : data.as_table()) {
+    em::VolumeProfile profile{};
+
+    const auto controls{toml::find<std::vector<toml::table>>(section.second, "controls")};
+    for (const auto &entry : controls) {
+      em::VolumeControl control{};
+      control.suffix = entry.at("suffix").as_string();
+      control.relative_volume = static_cast<float>(entry.at("volume").as_floating());
+      profile.controls.emplace_back(std::move(control));
+    }
+
+    profiles.try_emplace(section.first, std::move(profile));
+  }
+
+  const std::string activeProfileName{"default"};
+  const auto &activeProfile{profiles.at(activeProfileName)};
 
   winrt::init_apartment();
 
@@ -50,7 +71,12 @@ int main() {
   winrt::check_hresult(device->Activate(
       winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
 
-  winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(globalVolume, nullptr));
+  for (const auto &control : activeProfile.controls) {
+    if (control.suffix != "*") continue;
+    winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
+    // To be consistent with later controls overriding earlier ones when they
+    // both match the same executable, do not early exit.
+  }
 
   winrt::com_ptr<IAudioSessionManager2> sessionMgr;
   winrt::check_hresult(device->Activate(
@@ -80,23 +106,23 @@ int main() {
     const winrt::handle procHnd{::OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
     if (!procHnd) {
-      std::wcerr << "Failed to open process with PID " << pid << '\n';
+      std::cerr << "Failed to open process with PID " << pid << '\n';
       continue;
     }
 
     // TODO: Support paths longer than MAX_PATH, which has been superseded on
     //       modern systems.
-    std::wstring procName(MAX_PATH, '\0');
+    std::string procName(MAX_PATH, '\0');
     auto procNameSize{static_cast<DWORD>(procName.size())};
-    winrt::check_bool(::QueryFullProcessImageNameW(procHnd.get(), 0, procName.data(), &procNameSize));
+    winrt::check_bool(::QueryFullProcessImageNameA(procHnd.get(), 0, procName.data(), &procNameSize));
     procName.resize(procNameSize);
 
-    for (const auto &entry : volumes) {
-      if (!procName.ends_with(entry.first)) continue;
+    for (const auto &control : activeProfile.controls) {
+      if (!procName.ends_with(control.suffix)) continue;
 
       const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
-      volume->SetMasterVolume(entry.second, nullptr);
-      std::wcout << "Set volume of " << procName << " to " << entry.second << '\n';
+      volume->SetMasterVolume(control.relative_volume, nullptr);
+      std::cout << "Set volume of " << procName << " to " << control.relative_volume << '\n';
     }
   }
 

@@ -35,25 +35,35 @@ struct VolumeControl {
 struct VolumeProfile {
   std::vector<VolumeControl> controls;
 };
-}// namespace em
 
-int main() {
+/**
+ * Return the volume profiles defined by a TOML configuration file.
+ */
+inline std::map<std::string, em::VolumeProfile>
+parse_profiles_toml(const std::filesystem::path &profilePath) {
+  const auto data{toml::parse(profilePath)};
+
   std::map<std::string, em::VolumeProfile> profiles;
-
-  auto data{toml::parse("example-profiles.toml")};
   for (const auto &section : data.as_table()) {
     em::VolumeProfile profile{};
 
     const auto controls{toml::find<std::vector<toml::table>>(section.second, "controls")};
     for (const auto &entry : controls) {
-      em::VolumeControl control{};
-      control.suffix = entry.at("suffix").as_string();
-      control.relative_volume = static_cast<float>(entry.at("volume").as_floating());
-      profile.controls.emplace_back(std::move(control));
+      profile.controls.emplace_back(em::VolumeControl{
+          .suffix = entry.at("suffix").as_string(),
+          .relative_volume = static_cast<float>(entry.at("volume").as_floating()),
+      });
     }
 
     profiles.try_emplace(section.first, std::move(profile));
   }
+
+  return profiles;
+}
+}// namespace em
+
+int main() {
+  const auto profiles{em::parse_profiles_toml("example-profiles.toml")};
 
   const std::string activeProfileName{"default"};
   const auto &activeProfile{profiles.at(activeProfileName)};

@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-int main() try {
+int main() {
   float globalVolume = 0.27f;
   // The value displayed by sndvol is the product of this value and the
   // volume of the device (globalVolume), e.g. overall volume 26 with master
@@ -90,6 +90,4 @@ int main() try {
   }
 
   return 0;
-} catch (const std::runtime_error &err) {
-  std::wcerr << "Unhandled exception " << err.what() << '\n';
 }

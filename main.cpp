@@ -1,20 +1,11 @@
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
+#include <winrt/base.h>
 
-#include <functional>
 #include <iostream>
-#include <map>
 #include <string>
-
-struct Finally {
-  std::function<void()> f;
-
-  ~Finally() { f(); }
-};
-
-template<class F>
-auto finally(F &&f) { return Finally{std::forward<F>(f)}; }
+#include <vector>
 
 int main() try {
   float globalVolume = 0.27f;
@@ -27,114 +18,72 @@ int main() try {
       {L"\\steam.exe", 0.3f},
   };
 
-  ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  const auto coUninit = finally([] { ::CoUninitialize(); });
+  winrt::init_apartment();
 
-  HRESULT result;
-  IMMDeviceEnumerator *deviceEnumerator;
-  result = ::CoCreateInstance(
-      __uuidof(MMDeviceEnumerator),
-      /*pUnkOuter=*/nullptr,
-      CLSCTX_ALL,
-      IID_PPV_ARGS(&deviceEnumerator));
-  if (result != S_OK) {
-    throw std::runtime_error("CoCreateInstance(IMMDeviceEnumerator) failed");
-  }
-  const auto deallocDeviceEnumerator = finally([&] { deviceEnumerator->Release(); });
+  const auto deviceEnumerator{winrt::create_instance<IMMDeviceEnumerator>(
+      winrt::guid_of<MMDeviceEnumerator>(), CLSCTX_ALL, nullptr)};
 
-  IMMDevice *device;
-  result = deviceEnumerator->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eMultimedia, &device);
-  if (result != S_OK) {
-    throw std::runtime_error("GetDefaultAudioEndpoint() failed");
-  }
-  const auto deallocDevice = finally([&] { device->Release(); });
+  winrt::com_ptr<IMMDevice> device;
+  winrt::check_hresult(deviceEnumerator->GetDefaultAudioEndpoint(
+      EDataFlow::eRender, ERole::eMultimedia, device.put()));
 
-  IAudioEndpointVolume *deviceVolume;
-  result = device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, reinterpret_cast<void **>(&deviceVolume));
-  if (result != S_OK) {
-    throw std::runtime_error("Activate(IAudioEndpointVolume) failed");
-  }
-  const auto deallocDeviceVolume = finally([&] { deviceVolume->Release(); });
+  winrt::com_ptr<IAudioEndpointVolume> deviceVolume;
+  winrt::check_hresult(device->Activate(
+      winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
 
-  result = deviceVolume->SetMasterVolumeLevelScalar(globalVolume, nullptr);
-  if (result != S_OK) {
-    throw std::runtime_error("SetMasterVolumeLevel() failed");
-  }
+  winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(globalVolume, nullptr));
 
-  IAudioSessionManager2 *sessionMgr;
-  result = device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, reinterpret_cast<void **>(&sessionMgr));
-  if (result != S_OK) {
-    throw std::runtime_error("Activate(IAudioSessionManager) failed");
-  }
-  const auto deallocSessionMgr = finally([&] { sessionMgr->Release(); });
+  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
+  winrt::check_hresult(device->Activate(
+      winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
 
-  IAudioSessionEnumerator *sessionEnum;
-  result = sessionMgr->GetSessionEnumerator(&sessionEnum);
-  if (result != S_OK) {
-    throw std::runtime_error("GetSessionEnumerator() failed");
-  }
+  winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
+  winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
+
   int numSessions;
-  result = sessionEnum->GetCount(&numSessions);
-  if (result != S_OK) {
-    throw std::runtime_error("sessionEnum->GetCount() failed");
-  }
+  winrt::check_hresult(sessionEnum->GetCount(&numSessions));
   std::wcout << "Found " << numSessions << " audio sessions\n";
 
   for (int i = 0; i < numSessions; ++i) {
-    IAudioSessionControl *sessionCtrl;
-    result = sessionEnum->GetSession(i, &sessionCtrl);
-    if (result != S_OK) {
-      std::wcerr << "Failed to get session " << i << '\n';
-      continue;
-    }
-    const auto deallocSessionCtrl = finally([&] { sessionCtrl->Release(); });
+    winrt::com_ptr<IAudioSessionControl> sessionCtrl;
+    winrt::check_hresult(sessionEnum->GetSession(i, sessionCtrl.put()));
+    const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
 
-    IAudioSessionControl2 *sessionCtrl2;
-    result = sessionCtrl->QueryInterface(IID_PPV_ARGS(&sessionCtrl2));
-    if (result != S_OK) {
-      std::wcerr << "Failed to get SessionControl2 " << i << '\n';
-      continue;
-    }
+    // To get reliable name information about the session we need the PID of
+    // the process managing it. There is `IAudioSessionControl::GetDisplayName`,
+    // but it's up to the application to set that and many do not. `sndvol` has
+    // to create a fallback in that case, we opt to instead match the executable
+    // path.
+    //
+    // TODO: Support setting the system sounds volume.
 
-    // This will fail for the overall system process, which is fine.
-    // I personally have system sounds always set to zero.
     DWORD pid;
-    result = sessionCtrl2->GetProcessId(&pid);
-    if (result != S_OK) {
-      std::wcerr << "Failed to get the PID the audio session " << i << '\n';
+    winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
+    if (pid == 0) {
+      // System idle process
       continue;
     }
 
-    const auto procHnd = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-    if (procHnd == nullptr) {
+    const winrt::handle procHnd{::OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
+    if (!procHnd) {
       std::wcerr << "Failed to open process with PID " << pid << " for audio session " << i << '\n';
       continue;
     }
-    const auto deallocProcHnd = finally([&] { ::CloseHandle(procHnd); });
 
-    // Don't bother with display name since applications don't always set it.
-    std::wstring procName(256, '\0');
+    // TODO: Support paths longer than MAX_PATH, which has been superseded on
+    //       modern systems.
+    std::wstring procName(MAX_PATH, '\0');
     auto procNameSize{static_cast<DWORD>(procName.size())};
-    if (0 == QueryFullProcessImageNameW(procHnd, 0, procName.data(), &procNameSize)) {
-      std::wcerr << "Failed to get process name for PID " << pid << " for audio session " << i << '\n';
-      continue;
-    }
+    winrt::check_bool(::QueryFullProcessImageNameW(procHnd.get(), 0, procName.data(), &procNameSize));
     procName.resize(procNameSize);
 
     std::wcout << "Session " << i << ": " << procName << '\n';
 
-    for (const auto &entry: volumes) {
-      if (!procName.ends_with(entry.first))
-        continue;
+    for (const auto &entry : volumes) {
+      if (!procName.ends_with(entry.first)) continue;
 
-      ISimpleAudioVolume *volume;
-      result = sessionCtrl->QueryInterface(IID_PPV_ARGS(&volume));
-      if (result != S_OK) {
-        std::wcerr << "Failed to get AudioEndpointControl " << i << '\n';
-        continue;
-      }
-      const auto deallocVolume = finally([&] { volume->Release(); });
-
+      const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
       volume->SetMasterVolume(entry.second, nullptr);
       std::wcout << "Set volume of " << procName << " to " << entry.second << '\n';
     }

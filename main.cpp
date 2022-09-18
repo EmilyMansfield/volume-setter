@@ -60,6 +60,22 @@ parse_profiles_toml(const std::filesystem::path &profilePath) {
 
   return profiles;
 }
+
+/**
+ * Return the full executable name of the given process.
+ */
+std::string get_process_image_name(const winrt::handle &processHandle) {
+  constexpr DWORD PROCESS_NAME_WIN32{0};
+
+  // MAX_PATH includes the null-terminator
+  std::string procName(MAX_PATH - 1, '\0');
+  auto procNameSize{static_cast<DWORD>(procName.size())};
+  winrt::check_bool(::QueryFullProcessImageNameA(
+      processHandle.get(), PROCESS_NAME_WIN32, procName.data(), &procNameSize));
+  procName.resize(procNameSize);
+
+  return procName;
+}
 }// namespace em
 
 int main() {
@@ -120,12 +136,7 @@ int main() {
       continue;
     }
 
-    // TODO: Support paths longer than MAX_PATH, which has been superseded on
-    //       modern systems.
-    std::string procName(MAX_PATH, '\0');
-    auto procNameSize{static_cast<DWORD>(procName.size())};
-    winrt::check_bool(::QueryFullProcessImageNameA(procHnd.get(), 0, procName.data(), &procNameSize));
-    procName.resize(procNameSize);
+    const auto procName{em::get_process_image_name(procHnd)};
 
     for (const auto &control : activeProfile.controls) {
       if (!procName.ends_with(control.suffix)) continue;

@@ -229,6 +229,8 @@ std::optional<float> set_session_volume(
     //       With mild apologies to the Windows developers, I was not able to
     //       do this another way, and it seems quite absurd that a user cannot
     //       programmatically change the volume of their own applications.
+    //       Best I've found is this answer by a Microsoft employee stating that
+    //       you can often do it: https://stackoverflow.com/a/6084029
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
     volume->SetMasterVolume(control.relative_volume, nullptr);
     setVolume = control.relative_volume;

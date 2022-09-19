@@ -37,3 +37,5 @@ set_target_properties(volume_setter PROPERTIES
 
 install(TARGETS volume_setter
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES "LICENSE"
+        DESTINATION ${CMAKE_INSTALL_BINDIR})

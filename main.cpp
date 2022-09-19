@@ -1,8 +1,10 @@
+#include <argparse/argparse.hpp>
 #include <toml.hpp>
 
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
+#include <shlobj_core.h>
 
 #include <winrt/base.h>
 
@@ -172,15 +174,68 @@ inline void set_session_volume(const VolumeProfile &profile,
     std::cout << "Set volume of " << procName << " to " << control.relative_volume << '\n';
   }
 }
+
+/**
+ * Return the path of the current user's local app data folder.
+ */
+inline std::filesystem::path local_app_data() {
+  wchar_t *path{};
+  const winrt::hresult result{::SHGetKnownFolderPath(
+      FOLDERID_LocalAppData, /*dwFlags=*/0, /*hToken=*/nullptr, &path)};
+
+  // Documentation states that `CoTaskMemFree` must be called even if the call
+  // to `SHGetKnownFolderPath` fails, use RAII to ensure this happens even if
+  // the path construction throws.
+  struct DeallocString {
+    wchar_t *data;
+    ~DeallocString() { ::CoTaskMemFree(data); }
+  } deallocAppdataPathRaw{path};
+
+  winrt::check_hresult(result);
+
+  return std::filesystem::path{path};
+}
+
+/**
+ * Return the path to the config file in which the profiles are defined.
+ *
+ * If `--config` is passed as a command line argument then its value is used as
+ * the path to the config file. Otherwise,
+ * `%LOCALAPPDATA%/volume-setter/config.toml` will be used.
+ */
+std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
+  if (auto configPath{app.present<std::string>("--config")}) {
+    return *configPath;
+  }
+
+  const auto configDir{em::local_app_data() / "volume-setter"};
+  std::filesystem::create_directories(configDir);
+  return configDir / "config.toml";
+}
 }// namespace em
 
-int main() {
-  const auto profiles{em::parse_profiles_toml("example-profiles.toml")};
-
-  const std::string activeProfileName{"default"};
-  const auto &activeProfile{profiles.at(activeProfileName)};
-
+int main(int argc, char *argv[]) {
   winrt::init_apartment();
+
+  argparse::ArgumentParser app("volume-setter", "0.1.0");
+  app.add_description("Set the volume of running programs to preset values.");
+  app.add_argument("profile")
+      .help("name of the profile to make active")
+      .required();
+  app.add_argument("--config")
+      .help("path to the configuration file");
+
+  try {
+    app.parse_args(argc, argv);
+  } catch (const std::runtime_error &e) {
+    std::cerr << e.what() << '\n'
+              << app;
+    return 1;
+  }
+
+  const auto configPath{em::get_config_path(app)};
+  const auto profiles{em::parse_profiles_toml(configPath)};
+  const auto &activeProfile{profiles.at(app.get<std::string>("profile"))};
 
   const auto device{em::get_default_audio_device()};
   em::set_device_volume(activeProfile, device);

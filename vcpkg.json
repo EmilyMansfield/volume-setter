@@ -3,6 +3,7 @@
   "name": "volume-setter",
   "version": "0.0.1",
   "dependencies": [
+    "argparse",
     "cppwinrt",
     "toml11"
   ]

@@ -15,6 +15,107 @@
 
 namespace em {
 namespace {
+
+struct VolumeControl {
+  std::string suffix;
+  float relative_volume;
+};
+
+struct VolumeProfile {
+  std::vector<VolumeControl> controls;
+};
+
+/**
+ * Return the volume profiles defined by a TOML configuration file.
+ */
+std::map<std::string, em::VolumeProfile>
+parse_profiles_toml(const std::filesystem::path &profilePath) {
+  const auto data{toml::parse(profilePath)};
+
+  std::map<std::string, em::VolumeProfile> profiles;
+  for (const auto &section : data.as_table()) {
+    em::VolumeProfile profile{};
+
+    const auto controls{toml::find<std::vector<toml::table>>(section.second, "controls")};
+    for (const auto &entry : controls) {
+      profile.controls.emplace_back(em::VolumeControl{
+          .suffix = entry.at("suffix").as_string(),
+          .relative_volume = static_cast<float>(entry.at("volume").as_floating()),
+      });
+    }
+
+    profiles.try_emplace(section.first, std::move(profile));
+  }
+
+  return profiles;
+}
+
+/**
+ * Return the path of the current user's local app data folder.
+ */
+std::filesystem::path local_app_data();
+
+/**
+ * Return the path to the config file in which the profiles are defined.
+ *
+ * If `--config` is passed as a command line argument then its value is used as
+ * the path to the config file. Otherwise,
+ * `%LOCALAPPDATA%/volume-setter/config.toml` will be used.
+ */
+std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
+  if (auto configPath{app.present<std::string>("--config")}) {
+    return *configPath;
+  }
+
+  return em::local_app_data() / "volume-setter" / "config.toml";
+}
+
+/**
+ * Return the PID of the process managing the audio session.
+ */
+DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
+  DWORD pid;
+  winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
+  return pid;
+}
+
+/**
+ * Return the full executable name of the given process.
+ */
+std::string get_process_image_name(const winrt::handle &processHandle) {
+  constexpr DWORD PROCESS_NAME_WIN32{0};
+
+  // MAX_PATH includes the null-terminator
+  std::string procName(MAX_PATH - 1, '\0');
+  auto procNameSize{static_cast<DWORD>(procName.size())};
+  winrt::check_bool(::QueryFullProcessImageNameA(
+      processHandle.get(), PROCESS_NAME_WIN32, procName.data(), &procNameSize));
+  procName.resize(procNameSize);
+
+  return procName;
+}
+
+/**
+ * Return the path of the current user's local app data folder.
+ */
+std::filesystem::path local_app_data() {
+  wchar_t *path{};
+  const winrt::hresult result{::SHGetKnownFolderPath(
+      FOLDERID_LocalAppData, /*dwFlags=*/0, /*hToken=*/nullptr, &path)};
+
+  // Documentation states that `CoTaskMemFree` must be called even if the call
+  // to `SHGetKnownFolderPath` fails, use RAII to ensure this happens even if
+  // the path construction throws.
+  struct DeallocString {
+    wchar_t *data;
+    ~DeallocString() { ::CoTaskMemFree(data); }
+  } deallocAppdataPathRaw{path};
+
+  winrt::check_hresult(result);
+
+  return std::filesystem::path{path};
+}
+
 /**
  * Return a view over the session controls enumerated by a session enumerator.
  */
@@ -55,65 +156,6 @@ auto get_default_audio_device() {
       EDataFlow::eRender, ERole::eMultimedia, device.put()));
 
   return device;
-}
-
-/**
- * Return the PID of the process managing the audio session.
- */
-DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
-  DWORD pid;
-  winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
-  return pid;
-}
-
-struct VolumeControl {
-  std::string suffix;
-  float relative_volume;
-};
-
-struct VolumeProfile {
-  std::vector<VolumeControl> controls;
-};
-
-/**
- * Return the volume profiles defined by a TOML configuration file.
- */
-std::map<std::string, em::VolumeProfile>
-parse_profiles_toml(const std::filesystem::path &profilePath) {
-  const auto data{toml::parse(profilePath)};
-
-  std::map<std::string, em::VolumeProfile> profiles;
-  for (const auto &section : data.as_table()) {
-    em::VolumeProfile profile{};
-
-    const auto controls{toml::find<std::vector<toml::table>>(section.second, "controls")};
-    for (const auto &entry : controls) {
-      profile.controls.emplace_back(em::VolumeControl{
-          .suffix = entry.at("suffix").as_string(),
-          .relative_volume = static_cast<float>(entry.at("volume").as_floating()),
-      });
-    }
-
-    profiles.try_emplace(section.first, std::move(profile));
-  }
-
-  return profiles;
-}
-
-/**
- * Return the full executable name of the given process.
- */
-std::string get_process_image_name(const winrt::handle &processHandle) {
-  constexpr DWORD PROCESS_NAME_WIN32{0};
-
-  // MAX_PATH includes the null-terminator
-  std::string procName(MAX_PATH - 1, '\0');
-  auto procNameSize{static_cast<DWORD>(procName.size())};
-  winrt::check_bool(::QueryFullProcessImageNameA(
-      processHandle.get(), PROCESS_NAME_WIN32, procName.data(), &procNameSize));
-  procName.resize(procNameSize);
-
-  return procName;
 }
 
 /**
@@ -175,41 +217,6 @@ void set_session_volume(const VolumeProfile &profile,
   }
 }
 
-/**
- * Return the path of the current user's local app data folder.
- */
-std::filesystem::path local_app_data() {
-  wchar_t *path{};
-  const winrt::hresult result{::SHGetKnownFolderPath(
-      FOLDERID_LocalAppData, /*dwFlags=*/0, /*hToken=*/nullptr, &path)};
-
-  // Documentation states that `CoTaskMemFree` must be called even if the call
-  // to `SHGetKnownFolderPath` fails, use RAII to ensure this happens even if
-  // the path construction throws.
-  struct DeallocString {
-    wchar_t *data;
-    ~DeallocString() { ::CoTaskMemFree(data); }
-  } deallocAppdataPathRaw{path};
-
-  winrt::check_hresult(result);
-
-  return std::filesystem::path{path};
-}
-
-/**
- * Return the path to the config file in which the profiles are defined.
- *
- * If `--config` is passed as a command line argument then its value is used as
- * the path to the config file. Otherwise,
- * `%LOCALAPPDATA%/volume-setter/config.toml` will be used.
- */
-std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
-  if (auto configPath{app.present<std::string>("--config")}) {
-    return *configPath;
-  }
-
-  return em::local_app_data() / "volume-setter" / "config.toml";
-}
 }// namespace
 }// namespace em
 

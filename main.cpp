@@ -208,9 +208,7 @@ std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
     return *configPath;
   }
 
-  const auto configDir{em::local_app_data() / "volume-setter"};
-  std::filesystem::create_directories(configDir);
-  return configDir / "config.toml";
+  return em::local_app_data() / "volume-setter" / "config.toml";
 }
 }// namespace em
 

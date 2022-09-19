@@ -214,7 +214,7 @@ std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
 }
 }// namespace em
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) try {
   winrt::init_apartment();
 
   argparse::ArgumentParser app("volume-setter", "0.1.0");
@@ -273,4 +273,8 @@ int main(int argc, char *argv[]) {
   }
 
   return 0;
+} catch (const std::exception &e) {
+  std::cerr << "Unhandled exception: " << e.what() << '\n';
+} catch (const winrt::hresult_error &e) {
+  std::cerr << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
 }

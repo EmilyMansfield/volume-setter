@@ -1,3 +1,24 @@
+### Volume-Setter
+
+Command line tool for Windows to set the audio volumes of running programs to
+values defined in a config file.
+
+I run the same programs at different volumes depending on the situation, with
+e.g. game volume set lower when I'm on voice or watching a stream than when
+I'm playing by myself. I wrote this program to stop having to mess around with
+the Windows volume mixer and just press a button to set everything's volume to
+what I wanted for the situation.
+
+Usage is very simple; define a config file containing volume 'profiles' which
+define volume levels for different applications, then switch to a profile
+(e.g. the profile "foo") by calling `volume-setter foo` in a terminal.
+The application will automatically find the config file
+``%LOCALAPPDATA%\volume-setter\config.toml``, but if you want to put one
+somewhere else then you can pass the path to it with the `--config` option.
+
+#### Example Config
+
+```toml
 # Each section heading defines a 'profile' which is a collection of volume
 # settings for different programs. Switching to a profile with
 # `volume-setter default` would change the volumes of all running applications
@@ -25,3 +46,4 @@ controls = [
     { suffix = "\\steam.exe", volume = 0.3 },
     { suffix = "\\chrome.exe", volume = 0.9 },
 ]
+```

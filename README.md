@@ -47,3 +47,12 @@ controls = [
     { suffix = "\\chrome.exe", volume = 0.9 },
 ]
 ```
+
+#### Installing
+
+You should be able to just download and run the executable from the Releases
+page, no installer is required.
+
+If building from source, download CMake and vcpkg then simply build and install
+the CMake project as usual; the vcpkg integration should take care of
+downloading the dependencies.

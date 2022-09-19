@@ -9,6 +9,7 @@
 #include <winrt/base.h>
 
 #include <iostream>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -168,18 +169,22 @@ auto get_default_audio_device() {
  * suffixes, if there are multiple controls with this suffix then whichever
  * comes last takes precedence.
  */
-void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr<IMMDevice> &device) {
+std::optional<float> set_device_volume(
+    const VolumeProfile &profile,
+    const winrt::com_ptr<IMMDevice> &device) {
   winrt::com_ptr<IAudioEndpointVolume> deviceVolume;
   winrt::check_hresult(device->Activate(
       winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
 
+  std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
     if (control.suffix != ":device") continue;
     winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
-    std::cout << "Set volume of device to " << control.relative_volume << '\n';
+    setVolume = control.relative_volume;
     // To be consistent with later controls overriding earlier ones when they
     // both match the same executable, do not early exit.
   }
+  return setVolume;
 }
 
 /**
@@ -190,15 +195,18 @@ void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr<IMMDev
  * whichever comes last takes precedence. `sessionCtrl` must be the system
  * sounds sessions.
  */
-void set_system_sound_volume(const VolumeProfile &profile,
-                             const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+std::optional<float> set_system_sound_volume(
+    const VolumeProfile &profile,
+    const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+  std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
     if (control.suffix != ":system") continue;
 
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
     volume->SetMasterVolume(control.relative_volume, nullptr);
-    std::cout << "Set volume of system sounds to " << control.relative_volume << '\n';
+    setVolume = control.relative_volume;
   }
+  return setVolume;
 }
 
 /**
@@ -208,16 +216,19 @@ void set_system_sound_volume(const VolumeProfile &profile,
  * the volume of the given session, which must be managed by a process with the
  * given name.
  */
-void set_session_volume(const VolumeProfile &profile,
-                        std::string_view procName,
-                        const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+std::optional<float> set_session_volume(
+    const VolumeProfile &profile,
+    std::string_view procName,
+    const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+  std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
     if (!procName.ends_with(control.suffix)) continue;
 
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
     volume->SetMasterVolume(control.relative_volume, nullptr);
-    std::cout << "Set volume of " << procName << " to " << control.relative_volume << '\n';
+    setVolume = control.relative_volume;
   }
+  return setVolume;
 }
 
 }// namespace
@@ -247,7 +258,9 @@ int main(int argc, char *argv[]) try {
   const auto &activeProfile{profiles.at(app.get<std::string>("profile"))};
 
   const auto device{em::get_default_audio_device()};
-  em::set_device_volume(activeProfile, device);
+  if (const auto v{em::set_device_volume(activeProfile, device)}) {
+    std::cout << "Set volume of device to " << *v << '\n';
+  }
 
   for (const auto &sessionCtrl : em::get_audio_sessions(device)) {
     const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
@@ -265,7 +278,9 @@ int main(int argc, char *argv[]) try {
     // instead use `IAudioSessionControl2::IsSystemSoundsSession`, which sounds
     // much more reliable.
     if (sessionCtrl2->IsSystemSoundsSession() == S_OK) {
-      em::set_system_sound_volume(activeProfile, sessionCtrl);
+      if (const auto v{em::set_system_sound_volume(activeProfile, sessionCtrl)}) {
+        std::cout << "Set volume of system sounds to " << *v << '\n';
+      }
       continue;
     }
 
@@ -278,7 +293,9 @@ int main(int argc, char *argv[]) try {
       continue;
     }
     const auto procName{em::get_process_image_name(procHnd)};
-    em::set_session_volume(activeProfile, procName, sessionCtrl);
+    if (const auto v{em::set_session_volume(activeProfile, procName, sessionCtrl)}) {
+      std::cout << "Set volume of " << procName << " to " << *v << '\n';
+    }
   }
 
   return 0;

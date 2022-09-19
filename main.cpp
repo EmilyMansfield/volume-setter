@@ -52,6 +52,9 @@ parse_profiles_toml(const std::filesystem::path &profilePath) {
 
 /**
  * Return the path of the current user's local app data folder.
+ *
+ * On Windows this is the user's `LocalAppData` folder, which usually
+ * corresponds to the value of the environment variable `LOCALAPPDATA`.
  */
 std::filesystem::path local_app_data();
 
@@ -59,8 +62,8 @@ std::filesystem::path local_app_data();
  * Return the path to the config file in which the profiles are defined.
  *
  * If `--config` is passed as a command line argument then its value is used as
- * the path to the config file. Otherwise,
- * `%LOCALAPPDATA%/volume-setter/config.toml` will be used.
+ * the path to the config file. Otherwise, `./volume-setter/config.toml` will be
+ * used relative to the directory returned by `local_app_data()`.
  */
 std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
   if (auto configPath{app.present<std::string>("--config")}) {

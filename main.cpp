@@ -14,11 +14,11 @@
 #include <vector>
 
 namespace em {
-
+namespace {
 /**
  * Return a view over the session controls enumerated by a session enumerator.
  */
-inline auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEnum) {
+auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEnum) {
   int numSessions;
   winrt::check_hresult(sessionEnum->GetCount(&numSessions));
 
@@ -32,7 +32,7 @@ inline auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &se
 /**
  * Return a view over the session controls for the sessions on an audio device.
  */
-inline auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
+auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
   winrt::com_ptr<IAudioSessionManager2> sessionMgr;
   winrt::check_hresult(device->Activate(
       winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
@@ -46,7 +46,7 @@ inline auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
 /**
  * Return the default output multimedia audio device.
  */
-inline auto get_default_audio_device() {
+auto get_default_audio_device() {
   const auto deviceEnumerator{winrt::create_instance<IMMDeviceEnumerator>(
       winrt::guid_of<MMDeviceEnumerator>(), CLSCTX_ALL, nullptr)};
 
@@ -60,7 +60,7 @@ inline auto get_default_audio_device() {
 /**
  * Return the PID of the process managing the audio session.
  */
-inline DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
+DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
   DWORD pid;
   winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));
   return pid;
@@ -78,7 +78,7 @@ struct VolumeProfile {
 /**
  * Return the volume profiles defined by a TOML configuration file.
  */
-inline std::map<std::string, em::VolumeProfile>
+std::map<std::string, em::VolumeProfile>
 parse_profiles_toml(const std::filesystem::path &profilePath) {
   const auto data{toml::parse(profilePath)};
 
@@ -123,7 +123,7 @@ std::string get_process_image_name(const winrt::handle &processHandle) {
  * suffixes, if there are multiple controls with this suffix then whichever
  * comes last takes precedence.
  */
-inline void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr<IMMDevice> &device) {
+void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr<IMMDevice> &device) {
   winrt::com_ptr<IAudioEndpointVolume> deviceVolume;
   winrt::check_hresult(device->Activate(
       winrt::guid_of<IAudioEndpointVolume>(), CLSCTX_ALL, nullptr, deviceVolume.put_void()));
@@ -145,8 +145,8 @@ inline void set_device_volume(const VolumeProfile &profile, const winrt::com_ptr
  * whichever comes last takes precedence. `sessionCtrl` must be the system
  * sounds sessions.
  */
-inline void set_system_sound_volume(const VolumeProfile &profile,
-                                    const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+void set_system_sound_volume(const VolumeProfile &profile,
+                             const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
   for (const auto &control : profile.controls) {
     if (control.suffix != ":system") continue;
 
@@ -163,9 +163,9 @@ inline void set_system_sound_volume(const VolumeProfile &profile,
  * the volume of the given session, which must be managed by a process with the
  * given name.
  */
-inline void set_session_volume(const VolumeProfile &profile,
-                               std::string_view procName,
-                               const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
+void set_session_volume(const VolumeProfile &profile,
+                        std::string_view procName,
+                        const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
   for (const auto &control : profile.controls) {
     if (!procName.ends_with(control.suffix)) continue;
 
@@ -178,7 +178,7 @@ inline void set_session_volume(const VolumeProfile &profile,
 /**
  * Return the path of the current user's local app data folder.
  */
-inline std::filesystem::path local_app_data() {
+std::filesystem::path local_app_data() {
   wchar_t *path{};
   const winrt::hresult result{::SHGetKnownFolderPath(
       FOLDERID_LocalAppData, /*dwFlags=*/0, /*hToken=*/nullptr, &path)};
@@ -210,6 +210,7 @@ std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
 
   return em::local_app_data() / "volume-setter" / "config.toml";
 }
+}// namespace
 }// namespace em
 
 int main(int argc, char *argv[]) try {

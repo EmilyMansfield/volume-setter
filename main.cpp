@@ -202,6 +202,7 @@ std::optional<float> set_system_sound_volume(
   for (const auto &control : profile.controls) {
     if (control.suffix != ":system") continue;
 
+    // HACK: See em::set_session_volume()
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
     volume->SetMasterVolume(control.relative_volume, nullptr);
     setVolume = control.relative_volume;
@@ -224,6 +225,10 @@ std::optional<float> set_session_volume(
   for (const auto &control : profile.controls) {
     if (!procName.ends_with(control.suffix)) continue;
 
+    // HACK: This is undocumented behaviour! At least, as far as I know.
+    //       With mild apologies to the Windows developers, I was not able to
+    //       do this another way, and it seems quite absurd that a user cannot
+    //       programmatically change the volume of their own applications.
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
     volume->SetMasterVolume(control.relative_volume, nullptr);
     setVolume = control.relative_volume;

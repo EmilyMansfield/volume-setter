@@ -309,8 +309,13 @@ int main(int argc, char *argv[]) try {
 
   const auto configPath{em::get_config_path(app)};
   const auto profiles{em::parse_profiles_toml(configPath)};
-  const auto &activeProfile{profiles.at(app.get<std::string>("profile"))};
-  em::set_all_volumes(activeProfile);
+  const auto activeProfileName{app.get<std::string>("profile")};
+  const auto activeProfileIt{profiles.find(activeProfileName)};
+  if (activeProfileIt == profiles.end()) {
+    std::cerr << "Profile \"" << activeProfileName << "\" does not exist\n";
+    return 1;
+  }
+  em::set_all_volumes(activeProfileIt->second);
 
   return 0;
 } catch (const std::exception &e) {

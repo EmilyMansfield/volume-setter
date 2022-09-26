@@ -238,6 +238,53 @@ std::optional<float> set_session_volume(
   return setVolume;
 }
 
+/**
+ * Set the volume of each running application matching a `VolumeControl` in the
+ * `VolumeProfile`.
+ */
+void set_all_volumes(const VolumeProfile &profile) {
+  const auto device{em::get_default_audio_device()};
+  if (const auto v{em::set_device_volume(profile, device)}) {
+    std::cout << "Set volume of device to " << *v << '\n';
+  }
+
+  for (const auto &sessionCtrl : em::get_audio_sessions(device)) {
+    const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
+
+    // To get reliable name information about the session we need the PID of
+    // the process managing it. There is `IAudioSessionControl::GetDisplayName`,
+    // but it's up to the application to set that and many do not. `sndvol` has
+    // to create a fallback in that case, we opt to instead match the executable
+    // path.
+
+    // For the system process we can't get executable path from the PID, but
+    // we can still get the PID, which is zero. We actually can use
+    // `GetDisplayName` in this case, because the system process sets it,
+    // but rather than trying to match on that or relying on the PID we can
+    // instead use `IAudioSessionControl2::IsSystemSoundsSession`, which sounds
+    // much more reliable.
+    if (sessionCtrl2->IsSystemSoundsSession() == S_OK) {
+      if (const auto v{em::set_system_sound_volume(profile, sessionCtrl)}) {
+        std::cout << "Set volume of system sounds to " << *v << '\n';
+      }
+      continue;
+    }
+
+    const auto pid{em::get_process_id(sessionCtrl2)};
+    // PID should be nonzero since we've already handled the system sounds.
+    const winrt::handle procHnd{::OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
+    if (!procHnd) {
+      std::cerr << "Failed to open process with PID " << pid << '\n';
+      continue;
+    }
+    const auto procName{em::get_process_image_name(procHnd)};
+    if (const auto v{em::set_session_volume(profile, procName, sessionCtrl)}) {
+      std::cout << "Set volume of " << procName << " to " << *v << '\n';
+    }
+  }
+}
+
 }// namespace
 }// namespace em
 
@@ -263,47 +310,7 @@ int main(int argc, char *argv[]) try {
   const auto configPath{em::get_config_path(app)};
   const auto profiles{em::parse_profiles_toml(configPath)};
   const auto &activeProfile{profiles.at(app.get<std::string>("profile"))};
-
-  const auto device{em::get_default_audio_device()};
-  if (const auto v{em::set_device_volume(activeProfile, device)}) {
-    std::cout << "Set volume of device to " << *v << '\n';
-  }
-
-  for (const auto &sessionCtrl : em::get_audio_sessions(device)) {
-    const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
-
-    // To get reliable name information about the session we need the PID of
-    // the process managing it. There is `IAudioSessionControl::GetDisplayName`,
-    // but it's up to the application to set that and many do not. `sndvol` has
-    // to create a fallback in that case, we opt to instead match the executable
-    // path.
-
-    // For the system process we can't get executable path from the PID, but
-    // we can still get the PID, which is zero. We actually can use
-    // `GetDisplayName` in this case, because the system process sets it,
-    // but rather than trying to match on that or relying on the PID we can
-    // instead use `IAudioSessionControl2::IsSystemSoundsSession`, which sounds
-    // much more reliable.
-    if (sessionCtrl2->IsSystemSoundsSession() == S_OK) {
-      if (const auto v{em::set_system_sound_volume(activeProfile, sessionCtrl)}) {
-        std::cout << "Set volume of system sounds to " << *v << '\n';
-      }
-      continue;
-    }
-
-    const auto pid{em::get_process_id(sessionCtrl2)};
-    // PID should be nonzero since we've already handled the system sounds.
-    const winrt::handle procHnd{::OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
-    if (!procHnd) {
-      std::cerr << "Failed to open process with PID " << pid << '\n';
-      continue;
-    }
-    const auto procName{em::get_process_image_name(procHnd)};
-    if (const auto v{em::set_session_volume(activeProfile, procName, sessionCtrl)}) {
-      std::cout << "Set volume of " << procName << " to " << *v << '\n';
-    }
-  }
+  em::set_all_volumes(activeProfile);
 
   return 0;
 } catch (const std::exception &e) {

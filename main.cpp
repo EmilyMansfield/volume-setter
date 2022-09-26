@@ -17,6 +17,9 @@
 namespace em {
 namespace {
 
+constexpr inline std::string_view ExecutableName = EM_EXECUTABLE_NAME;
+constexpr inline std::string_view ExecutableVersion = EM_EXECUTABLE_VERSION;
+
 struct VolumeControl {
   std::string suffix;
   float relative_volume;
@@ -291,7 +294,8 @@ void set_all_volumes(const VolumeProfile &profile) {
 int main(int argc, char *argv[]) try {
   winrt::init_apartment();
 
-  argparse::ArgumentParser app("volume-setter", "0.1.0");
+  argparse::ArgumentParser app(std::string{em::ExecutableName},
+                               std::string{em::ExecutableVersion});
   app.add_description("Set the volume of running programs to preset values.");
   app.add_argument("profile")
       .help("name of the profile to make active")

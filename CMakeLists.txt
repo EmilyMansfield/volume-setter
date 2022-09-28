@@ -23,6 +23,8 @@ target_sources(volume_setter PRIVATE
 
 target_compile_options(volume_setter PRIVATE
         /await
+        /EHsc
+        /GR
         /utf-8
         /Zc:__cplusplus
         )

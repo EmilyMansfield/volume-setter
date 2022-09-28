@@ -56,9 +56,32 @@ public:
                                  profilePath.string(), context)) {}
 };
 
-struct VolumeControl {
-  std::string suffix;
-  float relative_volume;
+class VolumeControl {
+public:
+  explicit VolumeControl(std::string suffix, float relativeVolume)
+      : mSuffix{std::move(suffix)}, mRelativeVolume{relativeVolume} {
+    if (mRelativeVolume < 0.0f || mRelativeVolume > 1.0f) {
+      throw std::invalid_argument(std::format(
+          "Volume {} is out of range [0.0, 1.0]", mRelativeVolume));
+    }
+  }
+
+  VolumeControl(const VolumeControl &) = default;
+  VolumeControl &operator=(const VolumeControl &) = default;
+  VolumeControl(VolumeControl &&) noexcept = default;
+  VolumeControl &operator=(VolumeControl &&) noexcept = default;
+
+  [[nodiscard]] const std::string &suffix() const noexcept {
+    return mSuffix;
+  }
+
+  [[nodiscard]] float relative_volume() const noexcept {
+    return mRelativeVolume;
+  }
+
+private:
+  std::string mSuffix;
+  float mRelativeVolume;
 };
 
 struct VolumeProfile {
@@ -80,10 +103,18 @@ parse_profiles_toml(const std::filesystem::path &profilePath) try {
 
     const auto controls{toml::find(section.second, "controls").as_array()};
     for (const auto &entry : controls) {
-      profile.controls.emplace_back(em::VolumeControl{
-          .suffix = toml::find<std::string>(entry, "suffix"),
-          .relative_volume = toml::find<float>(entry, "volume"),
-      });
+      auto suffix{toml::find<std::string>(entry, "suffix")};
+      const auto &volumeObj{toml::find(entry, "volume")};
+      const auto volume{toml::get<float>(volumeObj)};
+
+      try {
+        profile.controls.emplace_back(em::VolumeControl{std::move(suffix), volume});
+      } catch (const std::invalid_argument &e) {
+        throw ProfileError(std::format(
+            "[error] Could not read profile at {}\n{}",
+            profilePath.string(),
+            toml::format_error(e.what(), volumeObj, "volume must be in range")));
+      }
     }
 
     profiles.try_emplace(section.first, std::move(profile));
@@ -227,9 +258,11 @@ std::optional<float> set_device_volume(
 
   std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
-    if (control.suffix != ":device") continue;
-    winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(control.relative_volume, nullptr));
-    setVolume = control.relative_volume;
+    if (control.suffix() != ":device") continue;
+    const float targetVol{control.relative_volume()};
+
+    winrt::check_hresult(deviceVolume->SetMasterVolumeLevelScalar(targetVol, nullptr));
+    setVolume = targetVol;
     // To be consistent with later controls overriding earlier ones when they
     // both match the same executable, do not early exit.
   }
@@ -249,12 +282,13 @@ std::optional<float> set_system_sound_volume(
     const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
   std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
-    if (control.suffix != ":system") continue;
+    if (control.suffix() != ":system") continue;
+    const float targetVol{control.relative_volume()};
 
     // HACK: See em::set_session_volume()
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
-    volume->SetMasterVolume(control.relative_volume, nullptr);
-    setVolume = control.relative_volume;
+    winrt::check_hresult(volume->SetMasterVolume(targetVol, nullptr));
+    setVolume = targetVol;
   }
   return setVolume;
 }
@@ -272,7 +306,8 @@ std::optional<float> set_session_volume(
     const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {
   std::optional<float> setVolume{};
   for (const auto &control : profile.controls) {
-    if (!procName.ends_with(control.suffix)) continue;
+    if (!procName.ends_with(control.suffix())) continue;
+    const float targetVol{control.relative_volume()};
 
     // HACK: This is undocumented behaviour! At least, as far as I know.
     //       With mild apologies to the Windows developers, I was not able to
@@ -281,8 +316,8 @@ std::optional<float> set_session_volume(
     //       Best I've found is this answer by a Microsoft employee stating that
     //       you can often do it: https://stackoverflow.com/a/6084029
     const auto volume{sessionCtrl.as<ISimpleAudioVolume>()};
-    volume->SetMasterVolume(control.relative_volume, nullptr);
-    setVolume = control.relative_volume;
+    winrt::check_hresult(volume->SetMasterVolume(targetVol, nullptr));
+    setVolume = targetVol;
   }
   return setVolume;
 }

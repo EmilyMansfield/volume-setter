@@ -8,9 +8,11 @@
 
 #include <winrt/base.h>
 
+#include <format>
 #include <iostream>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,40 @@ namespace {
 
 constexpr inline std::string_view ExecutableName = EM_EXECUTABLE_NAME;
 constexpr inline std::string_view ExecutableVersion = EM_EXECUTABLE_VERSION;
+
+/**
+ * Base class of all exceptions thrown by this application.
+ *
+ * \remark Doesn't worry about being nothrow copy-constructible because the
+ *         libraries that we depend on don't. It's only a requirement for
+ *         standard library exceptions anyway. In practice, throwing in the
+ *         copy construction does not necessarily call `std::terminate`, and
+ *         frankly this application isn't important enough to fret about it.
+ */
+class VolumeException : public std::exception {
+public:
+  explicit VolumeException(std::string msg) : mMsg{std::move(msg)} {}
+
+  [[nodiscard]] const char *what() const noexcept override {
+    return mMsg.c_str();
+  }
+
+private:
+  std::string mMsg;
+};
+
+/**
+ * Type of errors that occur when reading volume profiles.
+ */
+class ProfileError : public VolumeException {
+public:
+  explicit ProfileError(const std::string &msg) : VolumeException(msg) {}
+
+  explicit ProfileError(const std::filesystem::path &profilePath,
+                        std::string_view context)
+      : ProfileError(std::format("[error] Could not read profile file at {}\n{}",
+                                 profilePath.string(), context)) {}
+};
 
 struct VolumeControl {
   std::string suffix;
@@ -31,20 +67,22 @@ struct VolumeProfile {
 
 /**
  * Return the volume profiles defined by a TOML configuration file.
+ *
+ * \throws ProfileError if the profile cannot be read.
  */
 std::map<std::string, em::VolumeProfile>
-parse_profiles_toml(const std::filesystem::path &profilePath) {
+parse_profiles_toml(const std::filesystem::path &profilePath) try {
   const auto data{toml::parse(profilePath)};
 
   std::map<std::string, em::VolumeProfile> profiles;
   for (const auto &section : data.as_table()) {
     em::VolumeProfile profile{};
 
-    const auto controls{toml::find<std::vector<toml::table>>(section.second, "controls")};
+    const auto controls{toml::find(section.second, "controls").as_array()};
     for (const auto &entry : controls) {
       profile.controls.emplace_back(em::VolumeControl{
-          .suffix = entry.at("suffix").as_string(),
-          .relative_volume = static_cast<float>(entry.at("volume").as_floating()),
+          .suffix = toml::find<std::string>(entry, "suffix"),
+          .relative_volume = toml::find<float>(entry, "volume"),
       });
     }
 
@@ -52,6 +90,14 @@ parse_profiles_toml(const std::filesystem::path &profilePath) {
   }
 
   return profiles;
+} catch (const toml::exception &e) {
+  throw ProfileError(profilePath, e.what());
+} catch (const std::out_of_range &e) {
+  throw ProfileError(profilePath, e.what());
+} catch (const std::runtime_error &e) {
+  throw ProfileError(std::format(
+      "[error] Could not read profile at {}\n[error] {}",
+      profilePath.string(), e.what()));
 }
 
 /**
@@ -278,7 +324,7 @@ void set_all_volumes(const VolumeProfile &profile) {
     const winrt::handle procHnd{::OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
     if (!procHnd) {
-      std::cerr << "Failed to open process with PID " << pid << '\n';
+      std::cerr << "[error] Failed to open process with PID " << pid << '\n';
       continue;
     }
     const auto procName{em::get_process_image_name(procHnd)};
@@ -316,12 +362,15 @@ int main(int argc, char *argv[]) try {
   const auto activeProfileName{app.get<std::string>("profile")};
   const auto activeProfileIt{profiles.find(activeProfileName)};
   if (activeProfileIt == profiles.end()) {
-    std::cerr << "Profile \"" << activeProfileName << "\" does not exist\n";
+    std::cerr << "[error] Profile " << activeProfileName << " in "
+              << configPath.string() << " does not exist\n";
     return 1;
   }
   em::set_all_volumes(activeProfileIt->second);
 
   return 0;
+} catch (const em::ProfileError &e) {
+  std::cerr << e.what() << '\n';
 } catch (const std::exception &e) {
   std::cerr << "Unhandled exception: " << e.what() << '\n';
 } catch (const winrt::hresult_error &e) {

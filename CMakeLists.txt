@@ -18,8 +18,16 @@ set(EM_EXECUTABLE_VERSION ${PROJECT_VERSION})
 add_executable(volume_setter)
 target_sources(volume_setter PRIVATE
         app.manifest
+        src/declvol/config.cpp
+        src/declvol/exception.cpp
         src/declvol/main.cpp
+        src/declvol/process.cpp
+        src/declvol/profile.cpp
+        src/declvol/volume.cpp
+        src/declvol/windows.cpp
         )
+target_include_directories(volume_setter PRIVATE
+        include)
 
 target_compile_options(volume_setter PRIVATE
         /await

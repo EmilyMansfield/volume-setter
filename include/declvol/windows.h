@@ -1,0 +1,10 @@
+#ifndef VOLUME_SETTER_INCLUDE_DECLVOL_WINDOWS_H
+#define VOLUME_SETTER_INCLUDE_DECLVOL_WINDOWS_H
+
+#define NOMINMAX
+#include <windows.h>
+#undef NOMINMAX
+
+#include <winrt/base.h>
+
+#endif// VOLUME_SETTER_INCLUDE_DECLVOL_WINDOWS_H

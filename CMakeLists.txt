@@ -17,8 +17,8 @@ set(EM_EXECUTABLE_VERSION ${PROJECT_VERSION})
 
 add_executable(volume_setter)
 target_sources(volume_setter PRIVATE
-        main.cpp
         app.manifest
+        src/declvol/main.cpp
         )
 
 target_compile_options(volume_setter PRIVATE

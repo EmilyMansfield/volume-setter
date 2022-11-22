@@ -233,10 +233,24 @@ struct ServiceStateStopped : ServiceStateBase<ServiceStateId::Stopped> {
 /**
  * Holder for an arbitrary service state.
  */
-using ServiceState = std::variant<ServiceStateStopped,
-                                  ServiceStateStartPending,
-                                  ServiceStateStarted,
-                                  ServiceStateStopPending>;
+struct ServiceState : std::variant<ServiceStateStopped,
+                                   ServiceStateStartPending,
+                                   ServiceStateStarted,
+                                   ServiceStateStopPending> {
+  using variant::variant;
+
+  [[nodiscard]] constexpr ServiceStateId state_id() const {
+    return std::visit([]<class T>(T) { return T::StateId; }, *this);
+  }
+
+  [[nodiscard]] constexpr DWORD controls_accepted() const {
+    return std::visit([]<class S>(S) { return S::ControlsAccepted; }, *this);
+  }
+
+  [[nodiscard]] constexpr bool is_stopped() const {
+    return std::holds_alternative<ServiceStateStopped>(*this);
+  }
+};
 
 /**
  * Context type storing the current service state and allowing the service
@@ -252,18 +266,6 @@ public:
 
   [[nodiscard]] constexpr State current_state() const {
     return mCurrentState;
-  }
-
-  [[nodiscard]] constexpr ServiceStateId current_state_id() const {
-    return std::visit([]<class T>(T) { return T::StateId; }, mCurrentState);
-  }
-
-  [[nodiscard]] constexpr bool is_stopped() const {
-    return std::holds_alternative<ServiceStateStopped>(mCurrentState);
-  }
-
-  [[nodiscard]] constexpr DWORD current_controls_accepted() const {
-    return std::visit([]<class S>(S) { return S::ControlsAccepted; }, mCurrentState);
   }
 
   constexpr void transition(ServiceState newState) {
@@ -415,7 +417,7 @@ void WINAPI run_service(DWORD /*argc*/, LPSTR /*argv*/[]) {
       ctx.os() << "Updated status to " << status.dwCurrentState << std::endl;
 
       ctx.transition(newState);
-    } while (!ctx.is_stopped());
+    } while (!ctx.current_state().is_stopped());
     ctx.os() << "run_service() terminated" << std::endl;
   } catch (const em::ProfileError &e) {
     ctx.os() << e.what() << '\n';

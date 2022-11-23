@@ -1,4 +1,5 @@
 #include "declvol/exception.h"
+#include "declvol/mi.h"
 #include "declvol/profile.h"
 #include "declvol/windows.h"
 
@@ -280,6 +281,9 @@ public:
   mutable std::mutex mut;
   bool stop{false};
 
+  mi::Application miApp;
+  mi::Session miSession;
+
 private:
   State mCurrentState;
   std::unique_ptr<std::ostream> mOs;
@@ -335,16 +339,71 @@ private:
 ServiceState run_state_impl(ServiceStateStartPending /*state*/, ServiceContext &ctx) {
   ctx.os() << "Status -> StartPending" << std::endl;
   ctx.os() << "TODO: Load the config file" << std::endl;
+
+  ctx.miApp = mi::Application(nullptr);
+  ctx.os() << "Created Application" << std::endl;
+  ctx.miSession = ctx.miApp.local_session(mi::SessionProtocol::WINRM, nullptr);
+  ctx.os() << "Created Session" << std::endl;
+
   return ServiceStateStarted{};
 }
 
 ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) {
   ctx.os() << "Status -> Started" << std::endl;
+
+  const auto options{ctx.miApp.make_subscription_options(MI_SubscriptionDeliveryType_Pull)};
+  MI_OperationCallbacks callbacks{
+      .callbackContext = &ctx,
+      .indicationResult = [](MI_Operation *op,
+                             void *rawCtx,
+                             const MI_Instance *instance,
+                             const MI_Char *bookmark,
+                             const MI_Char *machineId,
+                             MI_Boolean moreResults,
+                             MI_Result resultCode,
+                             const MI_Char *errorString,
+                             const MI_Instance *errorDetails,
+                             MI_Result(MI_CALL * ack)(MI_Operation * op)) {
+        auto *ctx{static_cast<ServiceContext *>(rawCtx)};
+
+        try {
+          // Shortcut. TODO: Proper error handling, don't ignore the string.
+          if (errorString && !winrt::hstring{errorString}.empty()) {
+            ctx->os() << "Callback error " << winrt::to_string(winrt::hstring{errorString}) << std::endl;
+          }
+          mi::check_miresult(resultCode);
+
+          MI_Value value{};
+          MI_Type type{};
+          mi::check_miresult(::MI_Instance_GetElement(instance, L"ProcessName", &value, &type, nullptr, nullptr));
+          if (type != MI_STRING) {
+            ctx->os() << "Expected string type, received " << int{type} << std::endl;
+          } else {
+            const auto processName{winrt::hstring{value.string}};
+            ctx->os() << "Process " << winrt::to_string(processName) << " started" << std::endl;
+          }
+        } catch (const std::exception &e) {
+          ctx->os() << "Unhandled exception: " << e.what() << '\n';
+        } catch (const winrt::hresult_error &e) {
+          ctx->os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
+        }
+
+        // Nothing beyond this point. TODO: Use finally()
+        if (ack) ack(op);
+      },
+  };
+  auto operation{ctx.miSession.subscribe(
+      nullptr, L"Root\\CIMV2",
+      mi::QueryDialect::WQL, L"SELECT * FROM Win32_ProcessStartTrace",
+      options.get(), &callbacks)};
+
   {
     std::unique_lock lock{ctx.mut};
     ctx.cv.wait(lock, [&ctx] { return ctx.stop; });
   }
   ctx.os() << "Woken with stop notification" << std::endl;
+  operation.cancel(MI_REASON_SERVICESTOP);
+  ctx.os() << "Operation cancelled" << std::endl;
   return ServiceStateStopPending{};
 }
 

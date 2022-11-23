@@ -106,10 +106,13 @@ em_set_common(declvold)
 target_sources(declvold PRIVATE
         svc.manifest
 
+        src/declvol/mi.cpp
         src/declvol/service.cpp
         )
 target_link_libraries(declvold PRIVATE
         em::declvol_lib
+
+        mi.lib
         )
 
 target_compile_definitions(declvold PRIVATE

@@ -124,7 +124,7 @@ namespace detail {
  * Base class for MI class wrappers. Simplifies default initialization and
  * provides move semantics for MI classes.
  *
- * Users should implement the destructor to call the appropriate cleanup
+ * Users should pass as the `Deleter` a callable to call the appropriate cleanup
  * function for the wrapped `T`. The API does not say anything one way or
  * another about calling those functions on 'null' `T`, but since the
  * implementations are in the header we can see that they will return an error
@@ -136,11 +136,14 @@ namespace detail {
  *  assigned to  a `T` before it is initialized by an appropriate function.
  *  In practice this just zero-initializes, but since in the future it could
  *  change we'll be a good user this time and do as we're told.
+ * @tparam Deleter Callable that takes a pointer to the stored `T` and deletes
+ *  it using the appropriate cleanup function.
  */
-template<class T, T Init>
+template<class T, T Init, auto Deleter>
 class MIBase {
 public:
   MIBase() = default;
+  ~MIBase() { Deleter(get()); }
 
   MIBase(const MIBase &) = delete;
   MIBase &operator=(const MIBase &) = delete;
@@ -169,14 +172,13 @@ class SubscriptionOptions;
 /**
  * RAII wrapper around `MI_Application`.
  */
-class Application : public detail::MIBase<MI_Application, MI_Application(MI_APPLICATION_NULL)> {
+class Application : public detail::MIBase<
+                        MI_Application,
+                        MI_Application(MI_APPLICATION_NULL),
+                        [](MI_Application *p) { ::MI_Application_Close(p); }> {
 public:
   explicit Application(const MI_Char *applicationId);
-  ~Application();
-
   Application() = default;
-  Application(Application &&) noexcept = default;
-  Application &operator=(Application &&) noexcept = default;
 
   Session local_session(SessionProtocol protocol, MI_SessionCallbacks *callbacks);
   SubscriptionOptions make_subscription_options(MI_SubscriptionDeliveryType deliveryType);
@@ -188,14 +190,11 @@ public:
  * This implementation does not use the completion callback in its destructor so
  * is not safe to be destructed from an async callback.
  */
-class Session : public detail::MIBase<MI_Session, MI_Session(MI_APPLICATION_NULL)> {
+class Session : public detail::MIBase<
+                    MI_Session,
+                    MI_Session(MI_APPLICATION_NULL),
+                    [](MI_Session *p) { ::MI_Session_Close(p, nullptr, nullptr); }> {
 public:
-  ~Session();
-
-  Session() = default;
-  Session(Session &&) noexcept = default;
-  Session &operator=(Session &&) noexcept = default;
-
   /**
    * Subscribe to events in the given namespace matching a query string.
    */
@@ -212,26 +211,19 @@ public:
  */
 class SubscriptionOptions : public detail::MIBase<
                                 MI_SubscriptionDeliveryOptions,
-                                MI_SubscriptionDeliveryOptions(MI_SUBSCRIPTIONDELIVERYOPTIONS_NULL)> {
+                                MI_SubscriptionDeliveryOptions(MI_SUBSCRIPTIONDELIVERYOPTIONS_NULL),
+                                [](MI_SubscriptionDeliveryOptions *p) { ::MI_SubscriptionDeliveryOptions_Delete(p); }> {
 public:
-  ~SubscriptionOptions();
-
-  SubscriptionOptions() = default;
-  SubscriptionOptions(SubscriptionOptions &&) noexcept = default;
-  SubscriptionOptions &operator=(SubscriptionOptions &&) noexcept = default;
 };
 
 /**
  * RAII wrapper around `MI_Operation`.
  */
-class Operation : public detail::MIBase<MI_Operation, MI_Operation(MI_OPERATION_NULL)> {
+class Operation : public detail::MIBase<
+                      MI_Operation,
+                      MI_Operation(MI_OPERATION_NULL),
+                      [](MI_Operation *p) { ::MI_Operation_Close(p); }> {
 public:
-  ~Operation();
-
-  Operation() = default;
-  Operation(Operation &&) noexcept = default;
-  Operation &operator=(Operation &&) noexcept = default;
-
   void cancel(MI_CancellationReason reason);
 };
 

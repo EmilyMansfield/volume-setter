@@ -76,13 +76,6 @@ Application::Application(const MI_Char *applicationId) {
   mi::check_miresult(MI_Application_Initialize(0, applicationId, nullptr, get()));
 }
 
-Application::~Application() {
-  // Safe to call on a 'uninitialized' instance. According to the
-  // implementation at least, which is in the header. The documentation
-  // doesn't say one way or another whether this is allowed. Sorry Hyrum.
-  ::MI_Application_Close(get());
-}
-
 Session Application::local_session(SessionProtocol protocol, MI_SessionCallbacks *callbacks) {
   const MI_Char *miProtocol = [protocol] {
     switch (protocol) {
@@ -104,10 +97,6 @@ SubscriptionOptions Application::make_subscription_options(MI_SubscriptionDelive
   return opts;
 }
 
-Session::~Session() {
-  ::MI_Session_Close(get(), nullptr, nullptr);
-}
-
 Operation Session::subscribe(MI_OperationOptions *options,
                              const MI_Char *namespaceName,
                              QueryDialect dialect,
@@ -126,14 +115,6 @@ Operation Session::subscribe(MI_OperationOptions *options,
   ::MI_Session_Subscribe(get(), 0, options, namespaceName, miDialect, query,
                          deliveryOptions, callbacks, op.get());
   return op;
-}
-
-SubscriptionOptions::~SubscriptionOptions() {
-  ::MI_SubscriptionDeliveryOptions_Delete(get());
-}
-
-Operation::~Operation() {
-  ::MI_Operation_Close(get());
 }
 
 void Operation::cancel(MI_CancellationReason reason) {

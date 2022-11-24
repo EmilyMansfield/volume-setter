@@ -352,48 +352,29 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
   ctx.os() << "Status -> Started" << std::endl;
 
   const auto options{ctx.miApp.make_subscription_options(MI_SubscriptionDeliveryType_Pull)};
-  MI_OperationCallbacks callbacks{
-      .callbackContext = &ctx,
-      .indicationResult = [](MI_Operation *op,
-                             void *rawCtx,
-                             const MI_Instance *instance,
-                             const MI_Char *bookmark,
-                             const MI_Char *machineId,
-                             MI_Boolean moreResults,
-                             MI_Result resultCode,
-                             const MI_Char *errorString,
-                             const MI_Instance *errorDetails,
-                             MI_Result(MI_CALL * ack)(MI_Operation * op)) {
-        auto *ctx{static_cast<ServiceContext *>(rawCtx)};
-
+  auto operation{ctx.miSession.subscribe(
+      nullptr, L"Root\\CIMV2", mi::QueryDialect::WQL, L"SELECT * FROM Win32_ProcessStartTrace", options,
+      [&ctx](const MI_Instance *instance, mi::miresult result, const MI_Char *errorString) {
+        // No function try block for lambdas, so we lose an indentation level :(
         try {
-          if (!mi::miresult{resultCode}) {
-            throw mi::miresult_error(resultCode, errorString);
-          }
+          if (!result) throw mi::miresult_error(result, errorString);
 
           MI_Value value{};
           MI_Type type{};
           mi::check_miresult(::MI_Instance_GetElement(instance, L"ProcessName", &value, &type, nullptr, nullptr));
           if (type != MI_STRING) {
-            ctx->os() << "Expected string type, received " << int{type} << std::endl;
-          } else {
-            const auto processName{winrt::hstring{value.string}};
-            ctx->os() << "Process " << winrt::to_string(processName) << " started" << std::endl;
+            ctx.os() << "Expected string type, received " << int{type} << std::endl;
+            return;
           }
-        } catch (const std::exception &e) {
-          ctx->os() << "Unhandled exception: " << e.what() << '\n';
-        } catch (const winrt::hresult_error &e) {
-          ctx->os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
-        }
 
-        // Nothing beyond this point. TODO: Use finally()
-        if (ack) ack(op);
-      },
-  };
-  auto operation{ctx.miSession.subscribe(
-      nullptr, L"Root\\CIMV2",
-      mi::QueryDialect::WQL, L"SELECT * FROM Win32_ProcessStartTrace",
-      options.get(), &callbacks)};
+          const auto processName{winrt::hstring{value.string}};
+          ctx.os() << "Process " << winrt::to_string(processName) << " started" << std::endl;
+        } catch (const std::exception &e) {
+          ctx.os() << "Unhandled exception: " << e.what() << '\n';
+        } catch (const winrt::hresult_error &e) {
+          ctx.os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
+        }
+      })};
 
   {
     std::unique_lock lock{ctx.mut};

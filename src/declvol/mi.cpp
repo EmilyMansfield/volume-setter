@@ -91,6 +91,16 @@ Session Application::local_session(SessionProtocol protocol, MI_SessionCallbacks
   return sess;
 }
 
+SubscribeOperation Session::subscribe(
+    MI_OperationOptions *options,
+    const MI_Char *namespaceName,
+    QueryDialect dialect,
+    const MI_Char *query,
+    const SubscriptionOptions &subOptions,
+    SubscriptionCallback callback) {
+  return SubscribeOperation(*this, options, namespaceName, dialect, query, subOptions, std::move(callback));
+}
+
 SubscriptionOptions Application::make_subscription_options(MI_SubscriptionDeliveryType deliveryType) {
   SubscriptionOptions opts;
   mi::check_miresult(::MI_Application_NewSubscriptionDeliveryOptions(get(), deliveryType, opts.get()));
@@ -119,6 +129,42 @@ Operation Session::subscribe(MI_OperationOptions *options,
 
 void Operation::cancel(MI_CancellationReason reason) {
   mi::check_miresult(::MI_Operation_Cancel(get(), reason));
+}
+
+SubscribeOperation::SubscribeOperation(Session &session,
+                                       MI_OperationOptions *options,
+                                       const MI_Char *namespaceName,
+                                       QueryDialect dialect,
+                                       const MI_Char *query,
+                                       const SubscriptionOptions &subOptions,
+                                       SubscriptionCallback callback) : mCallback{std::move(callback)} {
+  MI_OperationCallbacks callbackTable{
+      .callbackContext = &mCallback,
+      .indicationResult = [](MI_Operation *op,
+                             void *rawCtx,
+                             const MI_Instance *instance,
+                             const MI_Char * /*bookmark*/,
+                             const MI_Char * /*machineId*/,
+                             MI_Boolean /*moreResults*/,
+                             MI_Result resultCode,
+                             const MI_Char *errorString,
+                             const MI_Instance * /*errorDetails*/,
+                             MI_Result(MI_CALL * ack)(MI_Operation * op)) {
+        // TODO: Use gsl::finally or similar
+        // This is in case the callback throws an exception and doesn't catch
+        // it. If somehow that works, we still need to call ack because
+        // otherwise the operation will not be able to stop and the service
+        // will deadlock if it hasn't already crashed. I'm not sure what the
+        // right thing to do here is.
+        struct final_ack_ {
+          MI_Result(MI_CALL *ack)(MI_Operation *);
+          MI_Operation *op;
+          ~final_ack_() { (ack && op) ? ack(op) : MI_Result{}; }
+        } final_ack{ack, op};
+        static_cast<SubscriptionCallback *>(rawCtx)->operator()(instance, resultCode, errorString);
+      },
+  };
+  mOp = session.subscribe(options, namespaceName, dialect, query, subOptions.get(), &callbackTable);
 }
 
 }// namespace em::mi

@@ -3,6 +3,7 @@
 
 #include "declvol/windows.h"
 
+#include <functional>
 #include <mi.h>
 
 namespace em::mi {
@@ -168,6 +169,7 @@ private:
 class Operation;
 class Session;
 class SubscriptionOptions;
+class SubscribeOperation;
 
 /**
  * RAII wrapper around `MI_Application`.
@@ -183,6 +185,8 @@ public:
   Session local_session(SessionProtocol protocol, MI_SessionCallbacks *callbacks);
   SubscriptionOptions make_subscription_options(MI_SubscriptionDeliveryType deliveryType);
 };
+
+using SubscriptionCallback = std::move_only_function<void(const MI_Instance *instance, miresult result, const MI_Char *errorString)>;
 
 /**
  * RAII wrapper around `MI_Session`.
@@ -204,6 +208,13 @@ public:
                       const MI_Char *query,
                       const MI_SubscriptionDeliveryOptions *deliveryOptions,
                       MI_OperationCallbacks *callbacks);
+
+  SubscribeOperation subscribe(MI_OperationOptions *options,
+                               const MI_Char *namespaceName,
+                               QueryDialect dialect,
+                               const MI_Char *query,
+                               const SubscriptionOptions &subOptions,
+                               SubscriptionCallback callback);
 };
 
 /**
@@ -225,6 +236,31 @@ class Operation : public detail::MIBase<
                       [](MI_Operation *p) { ::MI_Operation_Close(p); }> {
 public:
   void cancel(MI_CancellationReason reason);
+};
+
+/**
+ * RAII wrapper around a subscribe operation.
+ */
+class SubscribeOperation {
+public:
+  friend class Session;
+
+  SubscribeOperation(const SubscribeOperation &) = delete;
+  SubscribeOperation(SubscribeOperation &&) = delete;
+
+  void cancel(MI_CancellationReason reason) { return mOp.cancel(reason); };
+
+private:
+  explicit SubscribeOperation(Session &session,
+                              MI_OperationOptions *options,
+                              const MI_Char *namespaceName,
+                              QueryDialect dialect,
+                              const MI_Char *query,
+                              const SubscriptionOptions &subOptions,
+                              SubscriptionCallback callback);
+
+  SubscriptionCallback mCallback;
+  Operation mOp;
 };
 
 }// namespace em::mi

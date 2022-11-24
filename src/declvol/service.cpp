@@ -367,11 +367,9 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
         auto *ctx{static_cast<ServiceContext *>(rawCtx)};
 
         try {
-          // Shortcut. TODO: Proper error handling, don't ignore the string.
-          if (errorString && !winrt::hstring{errorString}.empty()) {
-            ctx->os() << "Callback error " << winrt::to_string(winrt::hstring{errorString}) << std::endl;
+          if (!mi::miresult{resultCode}) {
+            throw mi::miresult_error(resultCode, errorString);
           }
-          mi::check_miresult(resultCode);
 
           MI_Value value{};
           MI_Type type{};

@@ -2,7 +2,15 @@
 
 namespace em::mi {
 
+miresult_error::miresult_error(miresult result, const MI_Char *errorString)
+    : miresult_error(result) {
+  if (!errorString) return;
+  mErrString = std::make_shared<std::string>(winrt::to_string(winrt::hstring{errorString}));
+}
+
 [[nodiscard]] const char *miresult_error::what() const noexcept {
+  if (mErrString) return mErrString->c_str();
+
   // Descriptions are from the documentation
   // https://learn.microsoft.com/en-us/windows/win32/api/mi/ne-mi-mi_result
   switch (mResult) {

@@ -10,28 +10,65 @@ namespace em::mi {
 /**
  * Result of an MI API call.
  *
- * Follows the semantics of `winrt::hresult`.
+ * Follows the semantics of `winrt::hresult`, except that it has an additional
+ * conversion to `bool`.
  */
 struct miresult {
   MI_Result value{};
 
   constexpr miresult() noexcept = default;
+
   // NOLINTNEXTLINE "google-explicit-constructor"
   constexpr explicit(false) miresult(MI_Result v) noexcept : value{v} {}
   // NOLINTNEXTLINE "google-explicit-constructor"
   constexpr explicit(false) operator MI_Result() const noexcept { return value; }
+
+  /**
+   * Return whether the result represents success.
+   */
+  constexpr explicit operator bool() const noexcept { return value == MI_RESULT_OK; }
 };
 
 /**
  * Exception containing an `miresult` error.
  *
  * This was going to follow `winrt::hresult_error`, but the way in which
- * extended error information is obtained is different. For now, this class
- * does not support extended error information.
+ * extended error information is obtained is different. It is not possible to
+ * take an `MI_Result` and convert it to an exception with additional
+ * information like with `winrt::hresult_error and `winrt::check_hresult`
+ * because the additional information is conveyed through out-parameters.
+ *
+ * Additionally, the particular out-parameters that are used are not consistent;
+ * some functions have no such parameters, others return an `MI_Instance`,
+ * others return an `MI_Instance` and a string, and the positions in the
+ * parameter list can differ. Any of them may be null. With user cooperation
+ * or lots of wrapper code this can be worked around, but the `MI_Instance`s
+ * are not even straightforward to work with.
+ *
+ * The documentation is very sparse regarding the class of the error objects,
+ * but it suggests that they are usually a (subclass of) `CIM_Error`. This
+ * class is defined by the CIM standard and its description available in a
+ * MOF file, as well as in the docs, but does not seem to be available as
+ * source code. Microsoft's documentation for creating an MI provider states
+ * that the `convert-moftoprovider.exe` tool can convert MOF files to C source,
+ * but it doesn't appear to be included in the Windows 10 SDK available from
+ * Visual Studio Build Tools. There's also `mofcomp.exe`, but I'm very hesitant
+ * to try this tool with an existing MOF file as it appears to modify the
+ * registry and is intended for user-created MOF files. The `CIM_Error` class
+ * can be obtained at runtime, but this is quite complicated, especially when
+ * doing it in an exception class.
  */
 class miresult_error : public std::exception {
 public:
-  explicit miresult_error(miresult result) : mResult{result} {}
+  /**
+   * Construct an exception representing an MI error, using the default error
+   * string for that error code.
+   */
+  explicit miresult_error(miresult result) : mResult{result}, mErrString{} {}
+  /**
+   * Construct an exception representing an MI error with a custom error string.
+   */
+  explicit miresult_error(miresult result, const MI_Char *errorString);
 
   ~miresult_error() override = default;
 
@@ -40,6 +77,11 @@ public:
 
 private:
   miresult mResult;
+  // Need to store an error string for the extended error information because
+  // the std::exception API requires us to return a const char * and we are
+  // given a const wchar_t * whose contents need to be converted and whose
+  // lifetime must outlast the call to what().
+  std::shared_ptr<std::string> mErrString;
 };
 
 /**

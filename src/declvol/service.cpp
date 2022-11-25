@@ -219,7 +219,7 @@ struct ServiceStateStartPending : ServiceStateBase<ServiceStateId::StartPending>
  * Service state in which the service has started and is fully operational.
  */
 struct ServiceStateStarted : ServiceStateBase<ServiceStateId::Started> {
-  constexpr static inline DWORD ControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_TRIGGEREVENT;
+  constexpr static inline DWORD ControlsAccepted = SERVICE_ACCEPT_STOP;
 };
 
 /**
@@ -438,24 +438,19 @@ ServiceState run_state_impl(ServiceStateStopped state, ServiceContext &ctx) {
 DWORD WINAPI service_control_handler(DWORD ctrl, DWORD eventType, void *eventData, void *rawCtx) {
   auto *const ctx{static_cast<ServiceContext *>(rawCtx)};
   ctx->os() << "Received event: " << ctrl << ", " << eventType << ", " << eventData << std::endl;
-
+  // Return codes are specified by the HandlerEx documentation.
   switch (ctrl) {
+  case SERVICE_CONTROL_INTERROGATE: return NO_ERROR;
   case SERVICE_CONTROL_STOP: {
     {
       std::lock_guard lock{ctx->mut};
       ctx->stop = true;
     }
     ctx->cv.notify_one();
-    break;
+    return NO_ERROR;
   }
-  case SERVICE_CONTROL_TRIGGEREVENT:
-    ctx->os() << "TODO: Handle process start event" << std::endl;
-    break;
-  default:
-    break;
+  default: return ERROR_CALL_NOT_IMPLEMENTED;
   }
-
-  return NO_ERROR;
 }
 
 void WINAPI run_service(DWORD /*argc*/, LPSTR /*argv*/[]) {

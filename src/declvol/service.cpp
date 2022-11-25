@@ -4,10 +4,11 @@
 #include "declvol/windows.h"
 
 #include <argparse/argparse.hpp>
+
+#include <atomic>
 #include <format>
 #include <fstream>
 #include <syncstream>
-
 #include <variant>
 
 namespace em {
@@ -305,9 +306,7 @@ public:
     }
   }
 
-  std::condition_variable cv;
-  mutable std::mutex mut;
-  bool stop{false};
+  std::atomic_flag stopFlag;
 
   mi::Application miApp;
   mi::Session miSession;
@@ -403,10 +402,7 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
         }
       })};
 
-  {
-    std::unique_lock lock{ctx.mut};
-    ctx.cv.wait(lock, [&ctx] { return ctx.stop; });
-  }
+  ctx.stopFlag.wait(false);
   ctx.os() << "Woken with stop notification" << std::endl;
   operation.cancel(MI_REASON_SERVICESTOP);
   ctx.os() << "Operation cancelled" << std::endl;
@@ -442,11 +438,8 @@ DWORD WINAPI service_control_handler(DWORD ctrl, DWORD eventType, void *eventDat
   switch (ctrl) {
   case SERVICE_CONTROL_INTERROGATE: return NO_ERROR;
   case SERVICE_CONTROL_STOP: {
-    {
-      std::lock_guard lock{ctx->mut};
-      ctx->stop = true;
-    }
-    ctx->cv.notify_one();
+    ctx->stopFlag.test_and_set();
+    ctx->stopFlag.notify_one();
     return NO_ERROR;
   }
   default: return ERROR_CALL_NOT_IMPLEMENTED;

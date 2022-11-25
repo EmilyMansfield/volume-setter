@@ -68,12 +68,7 @@ void set_all_volumes(const VolumeProfile &profile) {
 
     const auto pid{em::get_process_id(sessionCtrl2)};
     // PID should be nonzero since we've already handled the system sounds.
-    const winrt::handle procHnd{::OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
-    if (!procHnd) {
-      std::cerr << "[error] Failed to open process with PID " << pid << '\n';
-      continue;
-    }
+    const auto procHnd{em::open_process(pid)};
     const auto procName{em::get_process_image_name(procHnd)};
     if (const auto v{em::set_session_volume(profile, procName, sessionCtrl)}) {
       std::cout << "Set volume of " << procName << " to " << *v << '\n';

@@ -15,4 +15,11 @@ std::string get_process_image_name(const winrt::handle &processHandle) {
   return procName;
 }
 
+winrt::handle open_process(DWORD pid) {
+  winrt::handle hnd{::OpenProcess(
+      PROCESS_QUERY_LIMITED_INFORMATION, /*bInheritHandle=*/false, pid)};
+  if (!hnd) winrt::throw_last_error();
+  return hnd;
+}
+
 }// namespace em

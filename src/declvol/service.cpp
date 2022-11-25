@@ -1,5 +1,6 @@
 #include "declvol/exception.h"
 #include "declvol/mi.h"
+#include "declvol/process.h"
 #include "declvol/profile.h"
 #include "declvol/windows.h"
 
@@ -389,14 +390,15 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
 
           MI_Value value{};
           MI_Type type{};
-          mi::check_miresult(::MI_Instance_GetElement(instance, L"ProcessName", &value, &type, nullptr, nullptr));
-          if (type != MI_STRING) {
-            ctx.os() << "Expected string type, received " << int{type} << std::endl;
+          mi::check_miresult(::MI_Instance_GetElement(instance, L"ProcessID", &value, &type, nullptr, nullptr));
+          if (type != MI_UINT32) {
+            ctx.os() << "Expected uint32 type for ProcessID, received " << int{type} << std::endl;
             return;
           }
 
-          const auto processName{winrt::hstring{value.string}};
-          ctx.os() << "Process " << winrt::to_string(processName) << " started" << std::endl;
+          const auto procHnd{em::open_process(value.uint32)};
+          const auto procName{em::get_process_image_name(procHnd)};
+          ctx.os() << "Process " << procName << " started" << std::endl;
         } catch (...) {
           ctx.log_active_exception();
         }

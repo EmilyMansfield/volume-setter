@@ -75,9 +75,7 @@ std::string get_current_executable_name() {
 int install_service() {
   const sc_handle scm{::OpenSCManagerA(nullptr, nullptr,
                                        SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT)};
-  if (!scm) {
-    winrt::throw_last_error();
-  }
+  if (!scm) winrt::throw_last_error();
 
   // Paths cannot contain " so there's nothing to escape.
   const auto quotedPath{std::format("\"{}\"", em::get_current_executable_name())};
@@ -94,9 +92,7 @@ int install_service() {
                                       /*lpDependencies=*/nullptr,
                                       /*lpServiceStartName=*/nullptr,
                                       /*lpPassword=*/nullptr)};
-  if (!sc) {
-    winrt::throw_last_error();
-  }
+  if (!sc) winrt::throw_last_error();
 
   std::cout << "Installed service\n";
 
@@ -460,9 +456,7 @@ void WINAPI run_service(DWORD /*argc*/, LPSTR /*argv*/[]) {
   try {
     const em::service_status_handle svcHandle{::RegisterServiceCtrlHandlerExA(
         em::ServiceName.data(), em::service_control_handler, &ctx)};
-    if (!svcHandle) {
-      winrt::throw_last_error();
-    }
+    if (!svcHandle) winrt::throw_last_error();
     ctx.os() << "Registered handler" << std::endl;
 
     ctx.transition(ServiceStateStartPending{.checkpoint = 0, .timeRemaining = 1000ms});

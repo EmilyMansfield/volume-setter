@@ -1,5 +1,4 @@
 #include "declvol/exception.h"
-#include "declvol/mi.h"
 #include "declvol/process.h"
 #include "declvol/profile.h"
 #include "declvol/windows.h"
@@ -309,9 +308,6 @@ public:
 
   std::atomic_flag stopFlag;
 
-  mi::Application miApp;
-  mi::Session miSession;
-
 private:
   State mCurrentState;
   std::unique_ptr<std::ostream> mOs;
@@ -369,44 +365,14 @@ ServiceState run_state_impl(ServiceStateStartPending /*state*/, ServiceContext &
   ctx.os() << "Status -> StartPending" << std::endl;
   ctx.os() << "TODO: Load the config file" << std::endl;
 
-  ctx.miApp = mi::Application(nullptr);
-  ctx.os() << "Created Application" << std::endl;
-  ctx.miSession = ctx.miApp.local_session(mi::SessionProtocol::WINRM, nullptr);
-  ctx.os() << "Created Session" << std::endl;
-
   return ServiceStateStarted{};
 }
 
 ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) {
   ctx.os() << "Status -> Started" << std::endl;
 
-  const auto options{ctx.miApp.make_subscription_options(MI_SubscriptionDeliveryType_Pull)};
-  auto operation{ctx.miSession.subscribe(
-      nullptr, L"Root\\CIMV2", mi::QueryDialect::WQL, L"SELECT * FROM Win32_ProcessStartTrace", options,
-      [&ctx](const MI_Instance *instance, mi::miresult result, const MI_Char *errorString) {
-        // No function try block for lambdas, so we lose an indentation level :(
-        try {
-          if (!result) throw mi::miresult_error(result, errorString);
-
-          MI_Value value{};
-          MI_Type type{};
-          mi::check_miresult(::MI_Instance_GetElement(instance, L"ProcessID", &value, &type, nullptr, nullptr));
-          if (type != MI_UINT32) {
-            ctx.os() << "Expected uint32 type for ProcessID, received " << int{type} << std::endl;
-            return;
-          }
-
-          const auto procHnd{em::open_process(value.uint32)};
-          const auto procName{em::get_process_image_name(procHnd)};
-          ctx.os() << "Process " << procName << " started" << std::endl;
-        } catch (...) {
-          ctx.log_active_exception();
-        }
-      })};
-
   ctx.stopFlag.wait(false);
   ctx.os() << "Woken with stop notification" << std::endl;
-  operation.cancel(MI_REASON_SERVICESTOP);
   ctx.os() << "Operation cancelled" << std::endl;
   return ServiceStateStopPending{};
 }

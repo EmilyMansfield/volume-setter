@@ -277,6 +277,23 @@ public:
     return std::osyncstream(*mOs);
   }
 
+  /**
+   * Lippincott function to print the active exception to the context's log.
+   *
+   * This function must be called inside of a catch-handler.
+   */
+  void log_active_exception() {
+    try {
+      throw;
+    } catch (const em::ProfileError &e) {
+      os() << e.what() << '\n';
+    } catch (const std::exception &e) {
+      os() << "Unhandled exception: " << e.what() << '\n';
+    } catch (const winrt::hresult_error &e) {
+      os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
+    }
+  }
+
   std::condition_variable cv;
   mutable std::mutex mut;
   bool stop{false};
@@ -288,6 +305,7 @@ private:
   State mCurrentState;
   std::unique_ptr<std::ostream> mOs;
 };
+
 /**
  * Return an object used to report the current service status to the Service
  * Control Manager.
@@ -369,10 +387,8 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
 
           const auto processName{winrt::hstring{value.string}};
           ctx.os() << "Process " << winrt::to_string(processName) << " started" << std::endl;
-        } catch (const std::exception &e) {
-          ctx.os() << "Unhandled exception: " << e.what() << '\n';
-        } catch (const winrt::hresult_error &e) {
-          ctx.os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
+        } catch (...) {
+          ctx.log_active_exception();
         }
       })};
 
@@ -457,12 +473,8 @@ void WINAPI run_service(DWORD /*argc*/, LPSTR /*argv*/[]) {
       ctx.transition(newState);
     } while (!ctx.current_state().is_stopped());
     ctx.os() << "run_service() terminated" << std::endl;
-  } catch (const em::ProfileError &e) {
-    ctx.os() << e.what() << '\n';
-  } catch (const std::exception &e) {
-    ctx.os() << "Unhandled exception: " << e.what() << '\n';
-  } catch (const winrt::hresult_error &e) {
-    ctx.os() << "Unhandled exception: " << winrt::to_string(e.message()) << '\n';
+  } catch (...) {
+    ctx.log_active_exception();
   }
 }
 

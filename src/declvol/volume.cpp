@@ -15,6 +15,14 @@ winrt::com_ptr<IMMDevice> get_default_audio_device() {
   return device;
 }
 
+winrt::com_ptr<IAudioSessionManager2>
+get_audio_session_manager(const winrt::com_ptr<IMMDevice> &device) {
+  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
+  winrt::check_hresult(device->Activate(
+      winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
+  return sessionMgr;
+}
+
 DWORD get_process_id(const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl2) {
   DWORD pid;
   winrt::check_hresult(sessionCtrl2->GetProcessId(&pid));

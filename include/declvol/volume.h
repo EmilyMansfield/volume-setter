@@ -14,6 +14,17 @@
 namespace em {
 
 /**
+ * Return the default output multimedia audio device.
+ */
+winrt::com_ptr<IMMDevice> get_default_audio_device();
+
+/**
+ * Return an audio session manager for an audio device.
+ */
+winrt::com_ptr<IAudioSessionManager2>
+get_audio_session_manager(const winrt::com_ptr<IMMDevice> &device);
+
+/**
  * Return a view over the session controls enumerated by a session enumerator.
  */
 auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEnum) {
@@ -31,20 +42,13 @@ auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEn
  * Return a view over the session controls for the sessions on an audio device.
  */
 auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
-  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
-  winrt::check_hresult(device->Activate(
-      winrt::guid_of<IAudioSessionManager2>(), CLSCTX_ALL, nullptr, sessionMgr.put_void()));
+  const auto sessionMgr{em::get_audio_session_manager(device)};
 
   winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
   winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
 
   return em::get_audio_sessions(sessionEnum);
 }
-
-/**
- * Return the default output multimedia audio device.
- */
-winrt::com_ptr<IMMDevice> get_default_audio_device();
 
 /**
  * Return the PID of the process managing the audio session.

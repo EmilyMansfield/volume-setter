@@ -161,10 +161,19 @@ using dmilliseconds = std::chrono::duration<DWORD, std::ratio<1, 1000>>;
  * of the service.
  */
 template<class T>
-concept service_state = requires {
-                          { T::StateId } -> std::convertible_to<ServiceStateId>;
-                          { T::ControlsAccepted } -> std::convertible_to<DWORD>;
-                        };
+concept service_state =
+    requires {
+      /**
+       * State ID that will be reported to the Service Control Manager when in
+       * this state.
+       */
+      { T::StateId } -> std::convertible_to<ServiceStateId>;
+      /**
+       * Controls issued by the Service Control Manager that will be accepted
+       * by the service when in this state.
+       */
+      { T::ControlsAccepted } -> std::convertible_to<DWORD>;
+    };
 
 /**
  * A service state in which an operation is pending and may make progress before

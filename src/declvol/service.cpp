@@ -57,24 +57,30 @@ struct service_status_handle_traits {
 using service_status_handle = winrt::handle_type<service_status_handle_traits>;
 
 /**
+ * Return the full executable name of the current process.
+ */
+std::string get_current_executable_name() {
+  // MAX_PATH includes the null-terminator, and it's allowed to write to the
+  // null-terminator of std::string so long as the written value is a null.
+  std::string path(MAX_PATH - 1, '\0');
+  const auto size{::GetModuleFileNameA(nullptr, path.data(), MAX_PATH)};
+  if (size == 0 || size == MAX_PATH) winrt::throw_last_error();
+  path.resize(size);
+  return path;
+}
+
+/**
  * Install the service to run as the LocalSystem user on-demand.
  */
 int install_service() {
-  std::string unquotedPath(MAX_PATH, '\0');
-  const auto unquotedSize{::GetModuleFileNameA(nullptr, unquotedPath.data(), MAX_PATH)};
-  if (unquotedSize == 0 || unquotedSize == MAX_PATH) {
-    winrt::throw_last_error();
-  }
-  unquotedPath.resize(unquotedSize);
-
-  // Paths cannot contain " so there's nothing to escape.
-  const std::string quotedPath{std::format("\"{}\"", unquotedPath)};
   const sc_handle scm{::OpenSCManagerA(nullptr, nullptr,
                                        SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT)};
   if (!scm) {
     winrt::throw_last_error();
   }
 
+  // Paths cannot contain " so there's nothing to escape.
+  const auto quotedPath{std::format("\"{}\"", em::get_current_executable_name())};
   const sc_handle sc{::CreateServiceA(scm.get(),
                                       em::ServiceName.data(),
                                       em::ServiceName.data(),

@@ -65,7 +65,7 @@ std::optional<float> set_system_sound_volume(
   return setVolume;
 }
 
-std::optional<float> set_session_volume(
+std::optional<float> set_named_session_volume(
     const VolumeProfile &profile,
     std::string_view procName,
     const winrt::com_ptr<IAudioSessionControl> &sessionCtrl) {

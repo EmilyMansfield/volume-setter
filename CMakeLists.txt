@@ -14,8 +14,6 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 set(EM_EXECUTABLE_NAME "volume-setter")
 set(EM_EXECUTABLE_VERSION ${PROJECT_VERSION})
-set(EM_SERVICE_NAME "volume-setter-service")
-set(EM_SERVICE_VERSION ${PROJECT_VERSION})
 
 # Set common compilation and link options for the given target.
 #
@@ -96,28 +94,3 @@ install(TARGETS declvol
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES "LICENSE"
         DESTINATION ${CMAKE_INSTALL_BINDIR})
-
-################################################################################
-# Service
-################################################################################
-add_executable(declvold)
-em_set_common(declvold)
-
-target_sources(declvold PRIVATE
-        svc.manifest
-
-        src/declvol/service.cpp
-        )
-target_link_libraries(declvold PRIVATE
-        em::declvol_lib
-
-        mi.lib
-        )
-
-target_compile_definitions(declvold PRIVATE
-        EM_SERVICE_NAME="${EM_SERVICE_NAME}"
-        EM_SERVICE_VERSION="${EM_SERVICE_VERSION}"
-        )
-set_target_properties(declvold PROPERTIES
-        OUTPUT_NAME ${EM_SERVICE_NAME}
-        )

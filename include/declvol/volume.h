@@ -89,7 +89,7 @@ std::optional<float> set_system_sound_volume(
  * the volume of the given session, which must be managed by a process with the
  * given name.
  */
-std::optional<float> set_session_volume(
+std::optional<float> set_named_session_volume(
     const VolumeProfile &profile,
     std::string_view procName,
     const winrt::com_ptr<IAudioSessionControl> &sessionCtrl);
@@ -120,7 +120,7 @@ winrt::com_ptr<IAudioSessionNotification> register_session_notification(
 
     explicit callback_t(F &&f) : f{std::move(f)} {}
 
-    HRESULT OnSessionCreated(IAudioSessionControl *session) noexcept override try {
+    HRESULT STDMETHODCALLTYPE OnSessionCreated(IAudioSessionControl *session) noexcept override try {
       winrt::com_ptr<IAudioSessionControl> ownedSession;
       ownedSession.copy_from(session);
       return std::invoke(f, ownedSession.as<IAudioSessionControl2>());

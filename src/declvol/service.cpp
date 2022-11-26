@@ -1,6 +1,7 @@
 #include "declvol/exception.h"
 #include "declvol/process.h"
 #include "declvol/profile.h"
+#include "declvol/volume.h"
 #include "declvol/windows.h"
 
 #include <argparse/argparse.hpp>
@@ -277,6 +278,12 @@ public:
     mOs = std::make_unique<std::ofstream>(std::filesystem::temp_directory_path() / "volume_setter.log");
   }
 
+  ~ServiceContext() {
+    if (sessionMgr && eventHandle) {
+      em::unregister_session_notification(sessionMgr, eventHandle);
+    }
+  }
+
   [[nodiscard]] constexpr State current_state() const {
     return mCurrentState;
   }
@@ -307,6 +314,8 @@ public:
   }
 
   std::atomic_flag stopFlag;
+  winrt::com_ptr<IAudioSessionManager2> sessionMgr;
+  winrt::com_ptr<IAudioSessionNotification> eventHandle;
 
 private:
   State mCurrentState;
@@ -365,6 +374,40 @@ ServiceState run_state_impl(ServiceStateStartPending /*state*/, ServiceContext &
   ctx.os() << "Status -> StartPending" << std::endl;
   ctx.os() << "TODO: Load the config file" << std::endl;
 
+  const auto device{em::get_default_audio_device()};
+  ctx.sessionMgr = em::get_audio_session_manager(device);
+
+  // Session creation notifications will not be sent until the audio sessions
+  // have been enumerated at least once.
+  // See the IAudioSessionManager2::RegisterSessionNotification documentation
+  // for details.
+  for (const auto &sessionCtrl : em::get_audio_sessions(ctx.sessionMgr)) {
+    ctx.os() << "Found startup audio session" << std::endl;
+    const auto sessionCtrl2{sessionCtrl.try_as<IAudioSessionControl2>()};
+    if (!sessionCtrl2) {
+      ctx.os() << "Failed to cast to IAudioSessionControl2" << std::endl;
+      continue;
+    }
+    const DWORD pid{em::get_process_id(sessionCtrl2)};
+    if (pid == 0) {
+      // Can't get a handle for the system process, this is handled differently.
+      ctx.os() << "Skipping system process" << std::endl;
+      continue;
+    }
+    const auto procHnd{em::open_process(pid)};
+    const auto procName{em::get_process_image_name(procHnd)};
+    ctx.os() << "Found startup audio session owned by " << procName << std::endl;
+  }
+
+  ctx.eventHandle = em::register_session_notification(
+      ctx.sessionMgr, [&ctx](const winrt::com_ptr<IAudioSessionControl2> &session) {
+        const DWORD pid{em::get_process_id(session)};
+        const auto procHnd{em::open_process(pid)};
+        const auto procName{em::get_process_image_name(procHnd)};
+        ctx.os() << "Found new audio session owned by " << procName << std::endl;
+        return S_OK;
+      });
+
   return ServiceStateStarted{};
 }
 
@@ -373,7 +416,6 @@ ServiceState run_state_impl(ServiceStateStarted /*state*/, ServiceContext &ctx) 
 
   ctx.stopFlag.wait(false);
   ctx.os() << "Woken with stop notification" << std::endl;
-  ctx.os() << "Operation cancelled" << std::endl;
   return ServiceStateStopPending{};
 }
 

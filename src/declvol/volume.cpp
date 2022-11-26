@@ -87,4 +87,10 @@ std::optional<float> set_session_volume(
   return setVolume;
 }
 
+void unregister_session_notification(
+    const winrt::com_ptr<IAudioSessionManager2> &mgr,
+    const winrt::com_ptr<IAudioSessionNotification> &handle) {
+  winrt::check_hresult(mgr->UnregisterSessionNotification(handle.get()));
+}
+
 }// namespace em

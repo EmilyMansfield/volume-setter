@@ -7,6 +7,8 @@
 #include <audiopolicy.h>
 #include <mmdeviceapi.h>
 
+#include <concepts>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <string_view>
@@ -91,6 +93,53 @@ std::optional<float> set_session_volume(
     const VolumeProfile &profile,
     std::string_view procName,
     const winrt::com_ptr<IAudioSessionControl> &sessionCtrl);
+
+/**
+ * Callable to be invoked when an audio session is created.
+ *
+ * Handlers should return `S_OK`.
+ */
+template<class T>
+concept session_notification_handler =
+    std::invocable<T, const winrt::com_ptr<IAudioSessionControl2> &>
+    && std::is_convertible_v<
+        std::invoke_result_t<T, const winrt::com_ptr<IAudioSessionControl2> &>,
+        winrt::hresult>;
+
+/**
+ * Register a handler to be called when a new audio session is created.
+ *
+ * The handler should be deregistered by a call to
+ * `unregister_session_notification` when it is no longer required.
+ */
+template<session_notification_handler F>
+winrt::com_ptr<IAudioSessionNotification> register_session_notification(
+    const winrt::com_ptr<IAudioSessionManager2> &mgr, F &&callback) {
+  struct callback_t : winrt::implements<callback_t, IAudioSessionNotification> {
+    std::move_only_function<winrt::hresult(const winrt::com_ptr<IAudioSessionControl2> &)> f;
+
+    explicit callback_t(F &&f) : f{std::move(f)} {}
+
+    HRESULT OnSessionCreated(IAudioSessionControl *session) noexcept override try {
+      winrt::com_ptr<IAudioSessionControl> ownedSession;
+      ownedSession.copy_from(session);
+      return std::invoke(f, ownedSession.as<IAudioSessionControl2>());
+    } catch (...) {
+      return winrt::to_hresult();
+    }
+  };
+
+  const auto c{winrt::make<callback_t>(std::forward<F>(callback))};
+  winrt::check_hresult(mgr->RegisterSessionNotification(c.get()));
+  return c;
+}
+
+/**
+ * Unregister a previously registered session notification handler.
+ */
+void unregister_session_notification(
+    const winrt::com_ptr<IAudioSessionManager2> &mgr,
+    const winrt::com_ptr<IAudioSessionNotification> &handle);
 
 }// namespace em
 

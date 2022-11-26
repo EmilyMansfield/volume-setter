@@ -20,6 +20,9 @@ winrt::com_ptr<IMMDevice> get_default_audio_device();
 
 /**
  * Return an audio session manager for an audio device.
+ *
+ * Note that calling this method twice on the same device returns a _different_
+ * audio manager.
  */
 winrt::com_ptr<IAudioSessionManager2>
 get_audio_session_manager(const winrt::com_ptr<IMMDevice> &device);
@@ -39,11 +42,10 @@ auto get_audio_sessions(const winrt::com_ptr<IAudioSessionEnumerator> &sessionEn
 }
 
 /**
- * Return a view over the session controls for the sessions on an audio device.
+ * Return a view over the session controls for the sessions managed by a
+ * session manager.
  */
-auto get_audio_sessions(const winrt::com_ptr<IMMDevice> &device) {
-  const auto sessionMgr{em::get_audio_session_manager(device)};
-
+auto get_audio_sessions(const winrt::com_ptr<IAudioSessionManager2> &sessionMgr) {
   winrt::com_ptr<IAudioSessionEnumerator> sessionEnum;
   winrt::check_hresult(sessionMgr->GetSessionEnumerator(sessionEnum.put()));
 

@@ -40,11 +40,12 @@ std::filesystem::path get_config_path(const argparse::ArgumentParser &app) {
  */
 void set_all_volumes(const VolumeProfile &profile) {
   const auto device{em::get_default_audio_device()};
+  const auto sessionMgr{em::get_audio_session_manager(device)};
   if (const auto v{em::set_device_volume(profile, device)}) {
     std::cout << "Set volume of device to " << *v << '\n';
   }
 
-  for (const auto &sessionCtrl : em::get_audio_sessions(device)) {
+  for (const auto &sessionCtrl : em::get_audio_sessions(sessionMgr)) {
     const auto sessionCtrl2{sessionCtrl.as<IAudioSessionControl2>()};
 
     // To get reliable name information about the session we need the PID of

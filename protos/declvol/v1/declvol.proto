@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package declvol.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "DeclvolProto";
+option java_package = "net.arlsefell.declvol.v1";
+
+// The main declvol service.
+service Declvol {
+  // Change the active profile being used by a declvol waiter process.
+  //
+  // (-- api-linter: core::0127::http-annotation=disabled
+  //     aip.dev/not-precedent: This API is for internal use only and I don't
+  //     think it's appropriate to depend on the Google API Protobuf library
+  //     just for an annotation.
+  // --)
+  rpc SwitchProfile (SwitchProfileRequest) returns (SwitchProfileResponse) {
+  }
+}
+
+// Request message for the `SwitchProfile` method.
+message SwitchProfileRequest {
+  // Name of the profile to make active.
+  //
+  // The profile must be defined in the given configuration file.
+  string profile = 1;
+
+  // Filepath of the configuration file in which the profile is defined.
+  //
+  // (--
+  // Because this service is only used internally to synchronize changes
+  // between a waiter process and a setter process, it's acceptable that this
+  // parameter be limited to the filesystem that the service is running on.
+  // While it would be more efficient and correct to pass the profile itself,
+  // the extra work in connecting the `VolumeProfile` to Protobuf doesn't
+  // currently seem worth it.
+  // --)
+  string config_path = 2;
+}
+
+// Response message for the `SwitchProfile` method.
+message SwitchProfileResponse {
+}

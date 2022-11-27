@@ -5,6 +5,7 @@ include(GNUInstallDirs)
 
 find_package(argparse CONFIG REQUIRED)
 find_package(cppwinrt CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
 find_package(toml11 CONFIG REQUIRED)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -76,10 +77,14 @@ target_sources(declvol PRIVATE
         app.manifest
 
         src/declvol/executable.cpp
+        src/declvol/v1/declvol.grpc.pb.cc
+        src/declvol/v1/declvol.pb.cc
         )
+target_include_directories(declvol PRIVATE src)
 target_link_libraries(declvol PRIVATE
         argparse::argparse
         em::declvol_lib
+        gRPC::grpc++
         )
 
 target_compile_definitions(declvol PRIVATE

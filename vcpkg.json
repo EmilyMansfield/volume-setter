@@ -5,6 +5,7 @@
   "dependencies": [
     "argparse",
     "cppwinrt",
+    "grpc",
     "toml11"
   ]
 }

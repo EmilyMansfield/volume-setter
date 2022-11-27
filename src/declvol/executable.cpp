@@ -1,12 +1,16 @@
 #include "declvol/config.h"
 #include "declvol/process.h"
 #include "declvol/profile.h"
+#include "declvol/v1/declvol.grpc.pb.h"
+#include "declvol/v1/declvol.pb.h"
 #include "declvol/volume.h"
 #include "declvol/windows.h"
 
 #include <argparse/argparse.hpp>
+#include <grpcpp/grpcpp.h>
 
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -18,6 +22,7 @@ namespace {
 
 constexpr inline std::string_view ExecutableName = EM_EXECUTABLE_NAME;
 constexpr inline std::string_view ExecutableVersion = EM_EXECUTABLE_VERSION;
+constexpr inline std::uint16_t DefaultPort = 50057;
 
 /**
  * Return the path to the config file in which the profiles are defined.
@@ -72,6 +77,112 @@ void set_session_volume(const VolumeProfile &profile,
   }
 }
 
+/**
+ * Implementation of the `declvol` service managing an active volume profile.
+ *
+ * This service only manages which profile is currently active, it does not
+ * change the volume of any sessions itself. The volume of any sessions opened
+ * after the service has started should be set by the session handler, and the
+ * volume of any sessions that are already open should be set by the client
+ * notifying the service of the profile change.
+ */
+class DeclvolService final : public declvol::v1::Declvol::Service {
+public:
+  explicit DeclvolService(VolumeProfile profile) : mActiveProfile{std::move(profile)} {}
+
+  grpc::Status SwitchProfile(grpc::ServerContext * /*context*/,
+                             const declvol::v1::SwitchProfileRequest *request,
+                             ::declvol::v1::SwitchProfileResponse * /*response*/) override try {
+    load_profile(request->config_path(), request->profile());
+    std::cout << "Switched profile to " << request->profile() << std::endl;
+    return grpc::Status::OK;
+  } catch (const em::ProfileError &e) {
+    return {grpc::StatusCode::FAILED_PRECONDITION, e.what()};
+  } catch (const std::system_error &e) {
+    return {grpc::StatusCode::UNAVAILABLE, e.what()};
+  } catch (...) {
+    return {grpc::StatusCode::INTERNAL, "Unhandled exception"};
+  }
+
+  /**
+   * Return a copy of the currently active profile.
+   *
+   * This function is thread-safe.
+   *
+   * This function returns a copy to avoid concurrency issues where the profile
+   * could be modified while the profile is being changed. This is not the most
+   * efficient way to do it, but it's simple and sufficient.
+   */
+  em::VolumeProfile get_active_profile() const {
+    std::lock_guard lock{mMut};
+    return mActiveProfile;
+  }
+
+  /**
+   * Load a volume profile from a config file and set it to the currently
+   * active profile.
+   *
+   * This function is thread-safe.
+   *
+   * Because the service only manages which profile is currently active, this
+   * function does not change the volume of any sessions. Any session opened
+   * after this call will have its volume set correctly by the session handler,
+   * and any existing sessions should be set by the client.
+   */
+  void load_profile(const std::filesystem::path &configPath,
+                    const std::string &profileName) {
+    const auto profiles{em::parse_profiles_toml(configPath)};
+    const auto activeProfileIt{profiles.find(profileName)};
+    if (activeProfileIt == profiles.end()) {
+      throw em::ProfileError(configPath,
+                             std::format("Profile {} does not exist", profileName));
+    }
+
+    {
+      std::lock_guard lock{mMut};
+      mActiveProfile = activeProfileIt->second;
+    }
+  }
+
+private:
+  mutable std::mutex mMut;
+  em::VolumeProfile mActiveProfile;
+};
+
+/**
+ * Client class to interact with the `declvol` service.
+ */
+class DeclvolClient final {
+public:
+  explicit DeclvolClient(const std::shared_ptr<grpc::ChannelInterface> &channel)
+      : mStub(declvol::v1::Declvol::NewStub(channel)) {}
+
+  /**
+   * Notify the connected waiter process that the active profile has changed
+   * so that it can correctly set the volume of future audio sessions.
+   *
+   * The waiter service does not set the volume of any existing sessions, so
+   * the intention is that client's will change the volume of all existing
+   * processes and also issue this notification to the service.
+   */
+  void switch_profile(const std::filesystem::path &configPath,
+                      const std::string &profileName) {
+    grpc::ClientContext ctx;
+
+    declvol::v1::SwitchProfileRequest req;
+    req.set_profile(profileName);
+    req.set_config_path(configPath.string());
+
+    declvol::v1::SwitchProfileResponse resp;
+
+    mStub->SwitchProfile(&ctx, req, &resp);
+    (void) resp;
+  }
+
+private:
+  std::unique_ptr<declvol::v1::Declvol::Stub> mStub;
+};
+
 }// namespace
 }// namespace em
 
@@ -120,12 +231,33 @@ int main(int argc, char *argv[]) try {
     em::set_session_volume(profile, sessionCtrl);
   }
 
-  if (!app.get<bool>("--wait")) return 0;
+  const auto serviceUri{std::format("localhost:{}", em::DefaultPort)};
+
+  // Client only.
+  if (!app.get<bool>("--wait")) {
+    auto channel{grpc::CreateChannel(serviceUri, grpc::InsecureChannelCredentials())};
+    // TODO: Use a more reliable way to check if there is a service running.
+    if (!channel->WaitForConnected(std::chrono::system_clock::now() + std::chrono::milliseconds{100})) {
+      return 0;
+    }
+    em::DeclvolClient client(channel);
+    client.switch_profile(configPath, activeProfileName);
+
+    return 0;
+  }
+
+  // Server only.
+
+  em::DeclvolService service{profile};
+  grpc::ServerBuilder serverBuilder;
+  serverBuilder.AddListeningPort(serviceUri, grpc::InsecureServerCredentials());
+  serverBuilder.RegisterService(&service);
+  std::unique_ptr<grpc::Server> server(serverBuilder.BuildAndStart());
 
   const auto eventHandle{em::register_session_notification(
       sessionMgr,
-      [&profile](const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl) {
-        em::set_session_volume(profile, sessionCtrl);
+      [&service](const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl) {
+        em::set_session_volume(service.get_active_profile(), sessionCtrl);
         return S_OK;
       })};
 
@@ -133,6 +265,7 @@ int main(int argc, char *argv[]) try {
   std::cout << em::ExecutableName << " will now set the volume of launched processes, press enter to stop." << std::endl;
   std::cin.get();
 
+  server->Shutdown();
   em::unregister_session_notification(sessionMgr, eventHandle);
   return 0;
 } catch (const em::ProfileError &e) {

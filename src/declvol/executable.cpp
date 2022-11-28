@@ -7,6 +7,7 @@
 #include "declvol/windows.h"
 
 #include <argparse/argparse.hpp>
+#include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
 
 #include <filesystem>
@@ -223,6 +224,39 @@ int main(int argc, char *argv[]) try {
 
   const auto device{em::get_default_audio_device()};
   const auto sessionMgr{em::get_audio_session_manager(device)};
+
+  const auto serviceUri{std::format("localhost:{}", em::DefaultPort)};
+
+  // A waiter cannot be launched without an active profile, because it would not
+  // be able to set volumes. If it didn't also set volumes of existing processes
+  // on startup, then the volume state would not match the profile. Therefore,
+  // waiters are also setters.
+  //
+  // While ordinarily there should be at most one waiter running, we cannot
+  // guarantee that without trying to start the waiter service. Therefore, start
+  // the waiter service for waiter processes before we set any volumes.
+  // So that it is easier to maintain compatibility in the future, exit if a
+  // waiter is already running.
+  std::unique_ptr<em::DeclvolService> service;
+  std::unique_ptr<grpc::Server> server;
+  if (app.get<bool>("--wait")) {
+    service = std::make_unique<em::DeclvolService>(profile);
+    grpc::ServerBuilder serverBuilder;
+    serverBuilder.AddListeningPort(serviceUri, grpc::InsecureServerCredentials());
+    serverBuilder.RegisterService(service.get());
+    server = std::move(serverBuilder.BuildAndStart());
+    if (!server) {
+      // Almost certainly preceded by a big scary gRPC message, so add a newline
+      // to try and make this stand out.
+      std::cerr << "\nA waiter process is already running.\n";
+      return 1;
+    }
+  }
+
+  // Now we are either a proper setter, or the sole waiter, and therefore it is
+  // safe to set volumes. Only a proper setter must try to notify a waiter of
+  // the active profile change.
+
   if (const auto v{em::set_device_volume(profile, device)}) {
     std::cout << "Set volume of device to " << *v << '\n';
   }
@@ -231,42 +265,33 @@ int main(int argc, char *argv[]) try {
     em::set_session_volume(profile, sessionCtrl);
   }
 
-  const auto serviceUri{std::format("localhost:{}", em::DefaultPort)};
+  if (server) {
+    const auto eventHandle{em::register_session_notification(
+        sessionMgr,
+        [svc = service.get()](const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl) {
+          em::set_session_volume(svc->get_active_profile(), sessionCtrl);
+          return S_OK;
+        })};
 
-  // Client only.
-  if (!app.get<bool>("--wait")) {
-    auto channel{grpc::CreateChannel(serviceUri, grpc::InsecureChannelCredentials())};
-    // TODO: Use a more reliable way to check if there is a service running.
-    if (!channel->WaitForConnected(std::chrono::system_clock::now() + std::chrono::milliseconds{100})) {
-      return 0;
-    }
-    em::DeclvolClient client(channel);
-    client.switch_profile(configPath, activeProfileName);
+    // Wait on stdin.
+    std::cout << em::ExecutableName << " will now set the volume of launched processes, press enter to stop." << std::endl;
+    std::cin.get();
 
+    server->Shutdown();
+    em::unregister_session_notification(sessionMgr, eventHandle);
     return 0;
   }
 
-  // Server only.
+  auto channel{grpc::CreateChannel(serviceUri, grpc::InsecureChannelCredentials())};
+  // TODO: Use a more reliable way to check if there is a service running.
+  if (!channel->WaitForConnected(std::chrono::system_clock::now() + std::chrono::milliseconds{100})) {
+    // No service (probably), this not an error.
+    return 0;
+  }
 
-  em::DeclvolService service{profile};
-  grpc::ServerBuilder serverBuilder;
-  serverBuilder.AddListeningPort(serviceUri, grpc::InsecureServerCredentials());
-  serverBuilder.RegisterService(&service);
-  std::unique_ptr<grpc::Server> server(serverBuilder.BuildAndStart());
+  em::DeclvolClient client(channel);
+  client.switch_profile(configPath, activeProfileName);
 
-  const auto eventHandle{em::register_session_notification(
-      sessionMgr,
-      [&service](const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl) {
-        em::set_session_volume(service.get_active_profile(), sessionCtrl);
-        return S_OK;
-      })};
-
-  // Wait on stdin.
-  std::cout << em::ExecutableName << " will now set the volume of launched processes, press enter to stop." << std::endl;
-  std::cin.get();
-
-  server->Shutdown();
-  em::unregister_session_notification(sessionMgr, eventHandle);
   return 0;
 } catch (const em::ProfileError &e) {
   std::cerr << e.what() << '\n';

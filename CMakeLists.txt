@@ -99,3 +99,15 @@ install(TARGETS declvol
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES "LICENSE"
         DESTINATION ${CMAKE_INSTALL_BINDIR})
+# vcpkg places the DLLs in the build directory, which is helpful, but they don't
+# seem to get registered with CMake appropriately so they aren't installed
+# automatically with the RUNTIME like they should be. Copy them manually.
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/abseil_dll.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/cares.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/libcrypto-3-x64.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/libprotobuf.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/libssl-3-x64.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/re2.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/zlib1.dll
+        DESTINATION ${CMAKE_INSTALL_BINDIR})

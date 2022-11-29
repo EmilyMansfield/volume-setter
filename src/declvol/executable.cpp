@@ -111,6 +111,29 @@ void set_session_volume(const VolumeProfile &profile,
 }
 
 /**
+ * Holder for an interprocess queue that, if it creates a queue, takes ownership
+ * of it and removes it on destruction.
+ */
+class QueueHolder {
+public:
+  template<class Mode, class... Args>
+  explicit QueueHolder(Mode m, const char *name, Args &&...args)
+      : queue{m, name, std::forward<Args>(args)...},
+        mQueueName{name},
+        mHasOwnership{std::is_same_v<Mode, ipc::create_only_t>} {};
+
+  ~QueueHolder() {
+    if (mHasOwnership) ipc::message_queue::remove(mQueueName.c_str());
+  }
+
+  ipc::message_queue queue;
+
+private:
+  std::string mQueueName;
+  bool mHasOwnership;
+};
+
+/**
  * Implementation of the `declvol` service managing an active volume profile.
  *
  * This service only manages which profile is currently active, it does not
@@ -309,7 +332,7 @@ int main(int argc, char *argv[]) try {
   // So that it is easier to maintain compatibility in the future, exit if a
   // waiter is already running.
 
-  std::unique_ptr<ipc::message_queue> channel;
+  std::unique_ptr<em::QueueHolder> queueHolder;
   std::unique_ptr<em::DeclvolService> service;
   std::future<void> serviceSignal;
 
@@ -323,23 +346,40 @@ int main(int argc, char *argv[]) try {
     //       file and keeping the handles open.
 
     try {
-      channel = std::make_unique<ipc::message_queue>(
-          ipc::create_only, em::RpcQueueName.data(), 1, em::MaxMessageSize);
+      queueHolder = std::make_unique<em::QueueHolder>(
+          ipc::create_only, em::RpcQueueName.data(), 1ull, em::MaxMessageSize);
     } catch (const ipc::interprocess_exception &) {
       std::cerr << "A waiter process is already running\n";
+      // The QueueHolder will take care of properly removing the queue if this
+      // process exits while running destructors. That's most of the time, but
+      // the user could forcefully terminate the process with Ctrl-C or through
+      // Task Manager. In that case the queue will not be removed and no waiter
+      // will be able to start until the computer is restarted. Since generally
+      // providing an ability to delete the queue makes it seem like that's a
+      // good idea, I don't want any kind of 'recovery' command line option.
+      // Instead, prompt to delete the queue when it looks like another waiter
+      // is running if the user confirms that there isn't one. If we really have
+      // to help users out we could try checking the process list, but hopefully
+      // this is enough.
+      std::cerr << "If this is due to a waiter not exiting correctly, try to reset? [y/N]\n";
+      std::string answer{};
+      std::getline(std::cin, answer);
+      if (answer == "y" || answer == "Y") {
+        ipc::message_queue::remove(em::RpcQueueName.data());
+      }
       return 1;
     }
 
-    service = std::make_unique<em::DeclvolService>(*channel, profile);
+    service = std::make_unique<em::DeclvolService>(queueHolder->queue, profile);
     serviceSignal = std::async(std::launch::async, [svc = service.get()] {
       svc->wait();
     });
   } else {
     try {
-      channel = std::make_unique<ipc::message_queue>(ipc::open_only, em::RpcQueueName.data());
+      queueHolder = std::make_unique<em::QueueHolder>(ipc::open_only, em::RpcQueueName.data());
     } catch (const ipc::interprocess_exception &) {
-      // Could not open channel, presumably because it hasn't been created by a
-      // waiter. channel will remain default-initialized in this case.
+      // Could not open queueHolder, presumably because it hasn't been created by a
+      // waiter. queueHolder will remain default-initialized in this case.
     }
   }
 
@@ -370,12 +410,11 @@ int main(int argc, char *argv[]) try {
 
     service->shutdown();
     em::unregister_session_notification(sessionMgr, eventHandle);
-    ipc::message_queue::remove(em::RpcQueueName.data());
     return 0;
   }
 
-  if (channel) {
-    em::DeclvolClient client(*channel);
+  if (queueHolder) {
+    em::DeclvolClient client(queueHolder->queue);
     client.switch_profile(configPath, activeProfileName);
     return 0;
   }

@@ -16,6 +16,15 @@ The application will automatically find the config file
 ``%LOCALAPPDATA%\volume-setter\config.toml``, but if you want to put one
 somewhere else then you can pass the path to it with the `--config` option.
 
+By default, the application sets the volume of each running application that
+matches the config, and then exits. This means that if you launch a new
+application that needs its volume changed, then you'll need to run this
+application again. If you would rather this be handled automatically, then you
+can invoke the application with the `--wait` flag to tell it to remain open and
+set the volume of applications as they are launched. If you want to change the
+active profile, just run the application without the `--wait` flag and that
+profile will now be used by the waiting process.
+
 #### Example Config
 
 ```toml
@@ -51,7 +60,8 @@ controls = [
 #### Installing
 
 You should be able to just download and run the executable from the Releases
-page, no installer is required.
+page, no installer is required. There is one DLL file that needs to be kept in
+the same directory as the executable.
 
 If building from source, download CMake and vcpkg then simply build and install
 the CMake project as usual; the vcpkg integration should take care of

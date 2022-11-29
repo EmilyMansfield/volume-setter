@@ -5,8 +5,12 @@ package declvol.v1;
 option java_multiple_files = true;
 option java_outer_classname = "DeclvolProto";
 option java_package = "net.arlsefell.declvol.v1";
+option optimize_for = LITE_RUNTIME;
 
 // The main declvol service.
+// (-- This service is not currently in use, and instead IPC is accomplished
+//     using a single queue in shared memory.
+// --)
 service Declvol {
   // Change the active profile being used by a declvol waiter process.
   //

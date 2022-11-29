@@ -1,14 +1,12 @@
 #include "declvol/config.h"
 #include "declvol/process.h"
 #include "declvol/profile.h"
-#include "declvol/v1/declvol.grpc.pb.h"
 #include "declvol/v1/declvol.pb.h"
 #include "declvol/volume.h"
 #include "declvol/windows.h"
 
 #include <argparse/argparse.hpp>
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
+#include <boost/interprocess/ipc/message_queue.hpp>
 
 #include <filesystem>
 #include <future>
@@ -18,12 +16,46 @@
 #include <string>
 #include <string_view>
 
+namespace ipc = boost::interprocess;
+
 namespace em {
 namespace {
 
 constexpr inline std::string_view ExecutableName = EM_EXECUTABLE_NAME;
 constexpr inline std::string_view ExecutableVersion = EM_EXECUTABLE_VERSION;
-constexpr inline std::uint16_t DefaultPort = 50057;
+
+/**
+ * Name of the interprocess queue used to notify the waiter process, if any,
+ * that the active profile has changed.
+ *
+ * On Windows at least, Boost.Interprocess creates a shared memory mapped file
+ * with this name, so it needs to be unique among all other programs that use
+ * that directory. Hopefully this one is, but if anybody finds a collision then
+ * it can be changed.
+ *
+ * For consistency reasons, it's important that at most one waiter process is
+ * running at a time across all versions of the software. This includes forks!
+ * This is guaranteed provided that all versions use the same `RpcQueueName`.
+ *
+ * If a breaking change to the queue or message format would cause buggy
+ * behaviour when a waiter and setter from different versions across that
+ * breaking change interact, then it may be better to increase the version
+ * number on the queue. This allows those versions to exist independently,
+ * preventing any bugs from mismatched queue formats, but violating consistency
+ * unless users are careful to not run those two versions simultaneously.
+ * Protobuf allows a number of changes without breaking compatibility, so this
+ * is unlikely to be necessary.
+ */
+constexpr inline std::string_view RpcQueueName = "em_volume_setter_ipc_queue_v1";
+
+/**
+ * Maximum size of a serialized message in the interprocess queue.
+ *
+ * This sets a limit on the maximum size of the serialized Protobuf messages
+ * used to communicate between waiters and setters. Increasing it does not
+ * constitute a breaking change.
+ */
+constexpr inline std::size_t MaxMessageSize = 512ull;
 
 /**
  * Return the path to the config file in which the profiles are defined.
@@ -87,22 +119,64 @@ void set_session_volume(const VolumeProfile &profile,
  * volume of any sessions that are already open should be set by the client
  * notifying the service of the profile change.
  */
-class DeclvolService final : public declvol::v1::Declvol::Service {
+class DeclvolService {
 public:
-  explicit DeclvolService(VolumeProfile profile) : mActiveProfile{std::move(profile)} {}
+  explicit DeclvolService(ipc::message_queue &channel, VolumeProfile profile)
+      : mChannel{channel}, mActiveProfile{std::move(profile)} {}
 
-  grpc::Status SwitchProfile(grpc::ServerContext * /*context*/,
-                             const declvol::v1::SwitchProfileRequest *request,
-                             ::declvol::v1::SwitchProfileResponse * /*response*/) override try {
+  /**
+   * Change the active profile used by the service to the one described by the
+   * Protobuf message.
+   */
+  void switch_profile(const declvol::v1::SwitchProfileRequest *request) {
     load_profile(request->config_path(), request->profile());
     std::cout << "Switched profile to " << request->profile() << std::endl;
-    return grpc::Status::OK;
-  } catch (const em::ProfileError &e) {
-    return {grpc::StatusCode::FAILED_PRECONDITION, e.what()};
-  } catch (const std::system_error &e) {
-    return {grpc::StatusCode::UNAVAILABLE, e.what()};
-  } catch (...) {
-    return {grpc::StatusCode::INTERNAL, "Unhandled exception"};
+  }
+
+  /**
+   * Pull requests from the interprocess queue and run them until `shutdown`
+   * has been called.
+   *
+   * Once `shutdown` is called there may be a delay of up to a second until
+   * this function returns. This is because, unlike some concurrent queues,
+   * Boost.Interprocess's message queue does not have any way of closing it and
+   * waking receivers. Pulling until the queue is closed therefore involves
+   * either sending an in-band shutdown message to the queue, or receiving with
+   * a timeout and polling an out-of-band signal in between.
+   *
+   * Since an in-band approach requires checking the type of the serialized
+   * message, and implementing a new Protobuf for essentially an implementation
+   * detail, this function polls.
+   */
+  void wait() {
+    constexpr auto pollInterval = std::chrono::seconds{1};
+    std::array<std::byte, em::MaxMessageSize> buf{};
+
+    do {
+      std::size_t size{};
+      unsigned int priority{};
+      const auto deadline{std::chrono::steady_clock::now() + pollInterval};
+      if (!mChannel.timed_receive(buf.data(), buf.size(), size, priority, deadline)) {
+        continue;
+      }
+
+      ::declvol::v1::SwitchProfileRequest request;
+      if (!request.ParseFromArray(buf.data(), static_cast<int>(size))) {
+        std::cerr << "Received invalid SwitchProfileRequest\n";
+        continue;
+      }
+      switch_profile(&request);
+    } while (!mCloseFlag.test());
+  }
+
+  /**
+   * Close the queue so that any call to `wait` on the queue returns.
+   *
+   * Once the queue has been closed it cannot be reopened.
+   */
+  void shutdown() {
+    mCloseFlag.test_and_set();
+    mCloseFlag.notify_all();
   }
 
   /**
@@ -146,8 +220,10 @@ public:
   }
 
 private:
+  ipc::message_queue &mChannel;
   mutable std::mutex mMut;
   em::VolumeProfile mActiveProfile;
+  std::atomic_flag mCloseFlag;
 };
 
 /**
@@ -155,8 +231,7 @@ private:
  */
 class DeclvolClient final {
 public:
-  explicit DeclvolClient(const std::shared_ptr<grpc::ChannelInterface> &channel)
-      : mStub(declvol::v1::Declvol::NewStub(channel)) {}
+  explicit DeclvolClient(ipc::message_queue &channel) : mChannel{channel} {}
 
   /**
    * Notify the connected waiter process that the active profile has changed
@@ -168,20 +243,18 @@ public:
    */
   void switch_profile(const std::filesystem::path &configPath,
                       const std::string &profileName) {
-    grpc::ClientContext ctx;
-
     declvol::v1::SwitchProfileRequest req;
     req.set_profile(profileName);
     req.set_config_path(configPath.string());
 
-    declvol::v1::SwitchProfileResponse resp;
-
-    mStub->SwitchProfile(&ctx, req, &resp);
-    (void) resp;
+    const auto buf{req.SerializeAsString()};
+    if (!mChannel.try_send(buf.data(), buf.size(), 0)) {
+      throw std::runtime_error("Cannot notify waiter that active profile is changed, too many requests in queue.");
+    }
   }
 
 private:
-  std::unique_ptr<declvol::v1::Declvol::Stub> mStub;
+  ipc::message_queue &mChannel;
 };
 
 }// namespace
@@ -225,8 +298,6 @@ int main(int argc, char *argv[]) try {
   const auto device{em::get_default_audio_device()};
   const auto sessionMgr{em::get_audio_session_manager(device)};
 
-  const auto serviceUri{std::format("localhost:{}", em::DefaultPort)};
-
   // A waiter cannot be launched without an active profile, because it would not
   // be able to set volumes. If it didn't also set volumes of existing processes
   // on startup, then the volume state would not match the profile. Therefore,
@@ -237,19 +308,38 @@ int main(int argc, char *argv[]) try {
   // the waiter service for waiter processes before we set any volumes.
   // So that it is easier to maintain compatibility in the future, exit if a
   // waiter is already running.
+
+  std::unique_ptr<ipc::message_queue> channel;
   std::unique_ptr<em::DeclvolService> service;
-  std::unique_ptr<grpc::Server> server;
+  std::future<void> serviceSignal;
+
   if (app.get<bool>("--wait")) {
-    service = std::make_unique<em::DeclvolService>(profile);
-    grpc::ServerBuilder serverBuilder;
-    serverBuilder.AddListeningPort(serviceUri, grpc::InsecureServerCredentials());
-    serverBuilder.RegisterService(service.get());
-    server = std::move(serverBuilder.BuildAndStart());
-    if (!server) {
-      // Almost certainly preceded by a big scary gRPC message, so add a newline
-      // to try and make this stand out.
-      std::cerr << "\nA waiter process is already running.\n";
+    // Note: for consistency reasons one might want to delete the queue first,
+    //       under the assumption that it will not be deleted if it's in use.
+    //       This would help avoid any issues due to crashes where the queue is
+    //       not deleted but waiters can't start because it already exists.
+    //       However, this assumption is false, and the queue _can_ be deleted
+    //       while processes still have access to it by renaming the backing
+    //       file and keeping the handles open.
+
+    try {
+      channel = std::make_unique<ipc::message_queue>(
+          ipc::create_only, em::RpcQueueName.data(), 1, em::MaxMessageSize);
+    } catch (const ipc::interprocess_exception &) {
+      std::cerr << "A waiter process is already running\n";
       return 1;
+    }
+
+    service = std::make_unique<em::DeclvolService>(*channel, profile);
+    serviceSignal = std::async(std::launch::async, [svc = service.get()] {
+      svc->wait();
+    });
+  } else {
+    try {
+      channel = std::make_unique<ipc::message_queue>(ipc::open_only, em::RpcQueueName.data());
+    } catch (const ipc::interprocess_exception &) {
+      // Could not open channel, presumably because it hasn't been created by a
+      // waiter. channel will remain default-initialized in this case.
     }
   }
 
@@ -265,11 +355,12 @@ int main(int argc, char *argv[]) try {
     em::set_session_volume(profile, sessionCtrl);
   }
 
-  if (server) {
+  if (service) {
     const auto eventHandle{em::register_session_notification(
         sessionMgr,
         [svc = service.get()](const winrt::com_ptr<IAudioSessionControl2> &sessionCtrl) {
           em::set_session_volume(svc->get_active_profile(), sessionCtrl);
+          std::flush(std::cout);
           return S_OK;
         })};
 
@@ -277,20 +368,17 @@ int main(int argc, char *argv[]) try {
     std::cout << em::ExecutableName << " will now set the volume of launched processes, press enter to stop." << std::endl;
     std::cin.get();
 
-    server->Shutdown();
+    service->shutdown();
     em::unregister_session_notification(sessionMgr, eventHandle);
+    ipc::message_queue::remove(em::RpcQueueName.data());
     return 0;
   }
 
-  auto channel{grpc::CreateChannel(serviceUri, grpc::InsecureChannelCredentials())};
-  // TODO: Use a more reliable way to check if there is a service running.
-  if (!channel->WaitForConnected(std::chrono::system_clock::now() + std::chrono::milliseconds{100})) {
-    // No service (probably), this not an error.
+  if (channel) {
+    em::DeclvolClient client(*channel);
+    client.switch_profile(configPath, activeProfileName);
     return 0;
   }
-
-  em::DeclvolClient client(channel);
-  client.switch_profile(configPath, activeProfileName);
 
   return 0;
 } catch (const em::ProfileError &e) {

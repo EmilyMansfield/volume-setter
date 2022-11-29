@@ -8,10 +8,7 @@
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/extension_set.h>
 #include <google/protobuf/wire_format_lite.h>
-#include <google/protobuf/descriptor.h>
-#include <google/protobuf/generated_message_reflection.h>
-#include <google/protobuf/reflection_ops.h>
-#include <google/protobuf/wire_format.h>
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 // @@protoc_insertion_point(includes)
 #include <google/protobuf/port_def.inc>
 
@@ -37,7 +34,8 @@ struct SwitchProfileRequestDefaultTypeInternal {
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 SwitchProfileRequestDefaultTypeInternal _SwitchProfileRequest_default_instance_;
 PROTOBUF_CONSTEXPR SwitchProfileResponse::SwitchProfileResponse(
-    ::_pbi::ConstantInitialized) {}
+    ::_pbi::ConstantInitialized): _impl_{
+    /*decltype(_impl_._cached_size_)*/{}} {}
 struct SwitchProfileResponseDefaultTypeInternal {
   PROTOBUF_CONSTEXPR SwitchProfileResponseDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
@@ -49,60 +47,6 @@ struct SwitchProfileResponseDefaultTypeInternal {
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 SwitchProfileResponseDefaultTypeInternal _SwitchProfileResponse_default_instance_;
 }  // namespace v1
 }  // namespace declvol
-static ::_pb::Metadata file_level_metadata_declvol_2fv1_2fdeclvol_2eproto[2];
-static constexpr ::_pb::EnumDescriptor const** file_level_enum_descriptors_declvol_2fv1_2fdeclvol_2eproto = nullptr;
-static constexpr ::_pb::ServiceDescriptor const** file_level_service_descriptors_declvol_2fv1_2fdeclvol_2eproto = nullptr;
-
-const uint32_t TableStruct_declvol_2fv1_2fdeclvol_2eproto::offsets[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
-  ~0u,  // no _has_bits_
-  PROTOBUF_FIELD_OFFSET(::declvol::v1::SwitchProfileRequest, _internal_metadata_),
-  ~0u,  // no _extensions_
-  ~0u,  // no _oneof_case_
-  ~0u,  // no _weak_field_map_
-  ~0u,  // no _inlined_string_donated_
-  PROTOBUF_FIELD_OFFSET(::declvol::v1::SwitchProfileRequest, _impl_.profile_),
-  PROTOBUF_FIELD_OFFSET(::declvol::v1::SwitchProfileRequest, _impl_.config_path_),
-  ~0u,  // no _has_bits_
-  PROTOBUF_FIELD_OFFSET(::declvol::v1::SwitchProfileResponse, _internal_metadata_),
-  ~0u,  // no _extensions_
-  ~0u,  // no _oneof_case_
-  ~0u,  // no _weak_field_map_
-  ~0u,  // no _inlined_string_donated_
-};
-static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
-  { 0, -1, -1, sizeof(::declvol::v1::SwitchProfileRequest)},
-  { 8, -1, -1, sizeof(::declvol::v1::SwitchProfileResponse)},
-};
-
-static const ::_pb::Message* const file_default_instances[] = {
-  &::declvol::v1::_SwitchProfileRequest_default_instance_._instance,
-  &::declvol::v1::_SwitchProfileResponse_default_instance_._instance,
-};
-
-const char descriptor_table_protodef_declvol_2fv1_2fdeclvol_2eproto[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) =
-  "\n\030declvol/v1/declvol.proto\022\ndeclvol.v1\"<"
-  "\n\024SwitchProfileRequest\022\017\n\007profile\030\001 \001(\t\022"
-  "\023\n\013config_path\030\002 \001(\t\"\027\n\025SwitchProfileRes"
-  "ponse2a\n\007Declvol\022V\n\rSwitchProfile\022 .decl"
-  "vol.v1.SwitchProfileRequest\032!.declvol.v1"
-  ".SwitchProfileResponse\"\000B*\n\030net.arlsefel"
-  "l.declvol.v1B\014DeclvolProtoP\001b\006proto3"
-  ;
-static ::_pbi::once_flag descriptor_table_declvol_2fv1_2fdeclvol_2eproto_once;
-const ::_pbi::DescriptorTable descriptor_table_declvol_2fv1_2fdeclvol_2eproto = {
-    false, false, 276, descriptor_table_protodef_declvol_2fv1_2fdeclvol_2eproto,
-    "declvol/v1/declvol.proto",
-    &descriptor_table_declvol_2fv1_2fdeclvol_2eproto_once, nullptr, 0, 2,
-    schemas, file_default_instances, TableStruct_declvol_2fv1_2fdeclvol_2eproto::offsets,
-    file_level_metadata_declvol_2fv1_2fdeclvol_2eproto, file_level_enum_descriptors_declvol_2fv1_2fdeclvol_2eproto,
-    file_level_service_descriptors_declvol_2fv1_2fdeclvol_2eproto,
-};
-PROTOBUF_ATTRIBUTE_WEAK const ::_pbi::DescriptorTable* descriptor_table_declvol_2fv1_2fdeclvol_2eproto_getter() {
-  return &descriptor_table_declvol_2fv1_2fdeclvol_2eproto;
-}
-
-// Force running AddDescriptors() at dynamic initialization time.
-PROTOBUF_ATTRIBUTE_INIT_PRIORITY2 static ::_pbi::AddDescriptorsRunner dynamic_init_dummy_declvol_2fv1_2fdeclvol_2eproto(&descriptor_table_declvol_2fv1_2fdeclvol_2eproto);
 namespace declvol {
 namespace v1 {
 
@@ -114,19 +58,19 @@ class SwitchProfileRequest::_Internal {
 
 SwitchProfileRequest::SwitchProfileRequest(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
-  : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
+  : ::PROTOBUF_NAMESPACE_ID::MessageLite(arena, is_message_owned) {
   SharedCtor(arena, is_message_owned);
   // @@protoc_insertion_point(arena_constructor:declvol.v1.SwitchProfileRequest)
 }
 SwitchProfileRequest::SwitchProfileRequest(const SwitchProfileRequest& from)
-  : ::PROTOBUF_NAMESPACE_ID::Message() {
+  : ::PROTOBUF_NAMESPACE_ID::MessageLite() {
   SwitchProfileRequest* const _this = this; (void)_this;
   new (&_impl_) Impl_{
       decltype(_impl_.profile_){}
     , decltype(_impl_.config_path_){}
     , /*decltype(_impl_._cached_size_)*/{}};
 
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  _internal_metadata_.MergeFrom<std::string>(from._internal_metadata_);
   _impl_.profile_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
     _impl_.profile_.Set("", GetArenaForAllocation());
@@ -167,7 +111,7 @@ inline void SwitchProfileRequest::SharedCtor(
 
 SwitchProfileRequest::~SwitchProfileRequest() {
   // @@protoc_insertion_point(destructor:declvol.v1.SwitchProfileRequest)
-  if (auto *arena = _internal_metadata_.DeleteReturnArena<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>()) {
+  if (auto *arena = _internal_metadata_.DeleteReturnArena<std::string>()) {
   (void)arena;
     return;
   }
@@ -192,7 +136,7 @@ void SwitchProfileRequest::Clear() {
 
   _impl_.profile_.ClearToEmpty();
   _impl_.config_path_.ClearToEmpty();
-  _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+  _internal_metadata_.Clear<std::string>();
 }
 
 const char* SwitchProfileRequest::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) {
@@ -207,7 +151,7 @@ const char* SwitchProfileRequest::_InternalParse(const char* ptr, ::_pbi::ParseC
           auto str = _internal_mutable_profile();
           ptr = ::_pbi::InlineGreedyStringParser(str, ptr, ctx);
           CHK_(ptr);
-          CHK_(::_pbi::VerifyUTF8(str, "declvol.v1.SwitchProfileRequest.profile"));
+          CHK_(::_pbi::VerifyUTF8(str, nullptr));
         } else
           goto handle_unusual;
         continue;
@@ -217,7 +161,7 @@ const char* SwitchProfileRequest::_InternalParse(const char* ptr, ::_pbi::ParseC
           auto str = _internal_mutable_config_path();
           ptr = ::_pbi::InlineGreedyStringParser(str, ptr, ctx);
           CHK_(ptr);
-          CHK_(::_pbi::VerifyUTF8(str, "declvol.v1.SwitchProfileRequest.config_path"));
+          CHK_(::_pbi::VerifyUTF8(str, nullptr));
         } else
           goto handle_unusual;
         continue;
@@ -232,7 +176,7 @@ const char* SwitchProfileRequest::_InternalParse(const char* ptr, ::_pbi::ParseC
     }
     ptr = UnknownFieldParse(
         tag,
-        _internal_metadata_.mutable_unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(),
+        _internal_metadata_.mutable_unknown_fields<std::string>(),
         ptr, ctx);
     CHK_(ptr != nullptr);
   }  // while
@@ -271,8 +215,8 @@ uint8_t* SwitchProfileRequest::_InternalSerialize(
   }
 
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
-    target = ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
-        _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
+    target = stream->WriteRaw(_internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).data(),
+        static_cast<int>(_internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).size()), target);
   }
   // @@protoc_insertion_point(serialize_to_array_end:declvol.v1.SwitchProfileRequest)
   return target;
@@ -300,19 +244,22 @@ size_t SwitchProfileRequest::ByteSizeLong() const {
         this->_internal_config_path());
   }
 
-  return MaybeComputeUnknownFieldsSize(total_size, &_impl_._cached_size_);
+  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
+    total_size += _internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).size();
+  }
+  int cached_size = ::_pbi::ToCachedSize(total_size);
+  SetCachedSize(cached_size);
+  return total_size;
 }
 
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData SwitchProfileRequest::_class_data_ = {
-    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSourceCheck,
-    SwitchProfileRequest::MergeImpl
-};
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*SwitchProfileRequest::GetClassData() const { return &_class_data_; }
+void SwitchProfileRequest::CheckTypeAndMergeFrom(
+    const ::PROTOBUF_NAMESPACE_ID::MessageLite& from) {
+  MergeFrom(*::_pbi::DownCast<const SwitchProfileRequest*>(
+      &from));
+}
 
-
-void SwitchProfileRequest::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg) {
-  auto* const _this = static_cast<SwitchProfileRequest*>(&to_msg);
-  auto& from = static_cast<const SwitchProfileRequest&>(from_msg);
+void SwitchProfileRequest::MergeFrom(const SwitchProfileRequest& from) {
+  SwitchProfileRequest* const _this = this;
   // @@protoc_insertion_point(class_specific_merge_from_start:declvol.v1.SwitchProfileRequest)
   GOOGLE_DCHECK_NE(&from, _this);
   uint32_t cached_has_bits = 0;
@@ -324,7 +271,7 @@ void SwitchProfileRequest::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, c
   if (!from._internal_config_path().empty()) {
     _this->_internal_set_config_path(from._internal_config_path());
   }
-  _this->_internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  _this->_internal_metadata_.MergeFrom<std::string>(from._internal_metadata_);
 }
 
 void SwitchProfileRequest::CopyFrom(const SwitchProfileRequest& from) {
@@ -353,11 +300,10 @@ void SwitchProfileRequest::InternalSwap(SwitchProfileRequest* other) {
   );
 }
 
-::PROTOBUF_NAMESPACE_ID::Metadata SwitchProfileRequest::GetMetadata() const {
-  return ::_pbi::AssignDescriptors(
-      &descriptor_table_declvol_2fv1_2fdeclvol_2eproto_getter, &descriptor_table_declvol_2fv1_2fdeclvol_2eproto_once,
-      file_level_metadata_declvol_2fv1_2fdeclvol_2eproto[0]);
+std::string SwitchProfileRequest::GetTypeName() const {
+  return "declvol.v1.SwitchProfileRequest";
 }
+
 
 // ===================================================================
 
@@ -367,37 +313,145 @@ class SwitchProfileResponse::_Internal {
 
 SwitchProfileResponse::SwitchProfileResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
-  : ::PROTOBUF_NAMESPACE_ID::internal::ZeroFieldsBase(arena, is_message_owned) {
+  : ::PROTOBUF_NAMESPACE_ID::MessageLite(arena, is_message_owned) {
+  SharedCtor(arena, is_message_owned);
   // @@protoc_insertion_point(arena_constructor:declvol.v1.SwitchProfileResponse)
 }
 SwitchProfileResponse::SwitchProfileResponse(const SwitchProfileResponse& from)
-  : ::PROTOBUF_NAMESPACE_ID::internal::ZeroFieldsBase() {
+  : ::PROTOBUF_NAMESPACE_ID::MessageLite() {
   SwitchProfileResponse* const _this = this; (void)_this;
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  new (&_impl_) Impl_{
+      /*decltype(_impl_._cached_size_)*/{}};
+
+  _internal_metadata_.MergeFrom<std::string>(from._internal_metadata_);
   // @@protoc_insertion_point(copy_constructor:declvol.v1.SwitchProfileResponse)
 }
 
-
-
-
-
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData SwitchProfileResponse::_class_data_ = {
-    ::PROTOBUF_NAMESPACE_ID::internal::ZeroFieldsBase::CopyImpl,
-    ::PROTOBUF_NAMESPACE_ID::internal::ZeroFieldsBase::MergeImpl,
-};
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*SwitchProfileResponse::GetClassData() const { return &_class_data_; }
-
-
-
-
-
-
-
-::PROTOBUF_NAMESPACE_ID::Metadata SwitchProfileResponse::GetMetadata() const {
-  return ::_pbi::AssignDescriptors(
-      &descriptor_table_declvol_2fv1_2fdeclvol_2eproto_getter, &descriptor_table_declvol_2fv1_2fdeclvol_2eproto_once,
-      file_level_metadata_declvol_2fv1_2fdeclvol_2eproto[1]);
+inline void SwitchProfileResponse::SharedCtor(
+    ::_pb::Arena* arena, bool is_message_owned) {
+  (void)arena;
+  (void)is_message_owned;
+  new (&_impl_) Impl_{
+      /*decltype(_impl_._cached_size_)*/{}
+  };
 }
+
+SwitchProfileResponse::~SwitchProfileResponse() {
+  // @@protoc_insertion_point(destructor:declvol.v1.SwitchProfileResponse)
+  if (auto *arena = _internal_metadata_.DeleteReturnArena<std::string>()) {
+  (void)arena;
+    return;
+  }
+  SharedDtor();
+}
+
+inline void SwitchProfileResponse::SharedDtor() {
+  GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
+}
+
+void SwitchProfileResponse::SetCachedSize(int size) const {
+  _impl_._cached_size_.Set(size);
+}
+
+void SwitchProfileResponse::Clear() {
+// @@protoc_insertion_point(message_clear_start:declvol.v1.SwitchProfileResponse)
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  _internal_metadata_.Clear<std::string>();
+}
+
+const char* SwitchProfileResponse::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) {
+#define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
+  while (!ctx->Done(&ptr)) {
+    uint32_t tag;
+    ptr = ::_pbi::ReadTag(ptr, &tag);
+    if ((tag == 0) || ((tag & 7) == 4)) {
+      CHK_(ptr);
+      ctx->SetLastTag(tag);
+      goto message_done;
+    }
+    ptr = UnknownFieldParse(
+        tag,
+        _internal_metadata_.mutable_unknown_fields<std::string>(),
+        ptr, ctx);
+    CHK_(ptr != nullptr);
+  }  // while
+message_done:
+  return ptr;
+failure:
+  ptr = nullptr;
+  goto message_done;
+#undef CHK_
+}
+
+uint8_t* SwitchProfileResponse::_InternalSerialize(
+    uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const {
+  // @@protoc_insertion_point(serialize_to_array_start:declvol.v1.SwitchProfileResponse)
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
+    target = stream->WriteRaw(_internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).data(),
+        static_cast<int>(_internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).size()), target);
+  }
+  // @@protoc_insertion_point(serialize_to_array_end:declvol.v1.SwitchProfileResponse)
+  return target;
+}
+
+size_t SwitchProfileResponse::ByteSizeLong() const {
+// @@protoc_insertion_point(message_byte_size_start:declvol.v1.SwitchProfileResponse)
+  size_t total_size = 0;
+
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
+    total_size += _internal_metadata_.unknown_fields<std::string>(::PROTOBUF_NAMESPACE_ID::internal::GetEmptyString).size();
+  }
+  int cached_size = ::_pbi::ToCachedSize(total_size);
+  SetCachedSize(cached_size);
+  return total_size;
+}
+
+void SwitchProfileResponse::CheckTypeAndMergeFrom(
+    const ::PROTOBUF_NAMESPACE_ID::MessageLite& from) {
+  MergeFrom(*::_pbi::DownCast<const SwitchProfileResponse*>(
+      &from));
+}
+
+void SwitchProfileResponse::MergeFrom(const SwitchProfileResponse& from) {
+  SwitchProfileResponse* const _this = this;
+  // @@protoc_insertion_point(class_specific_merge_from_start:declvol.v1.SwitchProfileResponse)
+  GOOGLE_DCHECK_NE(&from, _this);
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  _this->_internal_metadata_.MergeFrom<std::string>(from._internal_metadata_);
+}
+
+void SwitchProfileResponse::CopyFrom(const SwitchProfileResponse& from) {
+// @@protoc_insertion_point(class_specific_copy_from_start:declvol.v1.SwitchProfileResponse)
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool SwitchProfileResponse::IsInitialized() const {
+  return true;
+}
+
+void SwitchProfileResponse::InternalSwap(SwitchProfileResponse* other) {
+  using std::swap;
+  _internal_metadata_.InternalSwap(&other->_internal_metadata_);
+}
+
+std::string SwitchProfileResponse::GetTypeName() const {
+  return "declvol.v1.SwitchProfileResponse";
+}
+
 
 // @@protoc_insertion_point(namespace_scope)
 }  // namespace v1

@@ -5,7 +5,7 @@ include(GNUInstallDirs)
 
 find_package(argparse CONFIG REQUIRED)
 find_package(cppwinrt CONFIG REQUIRED)
-find_package(gRPC CONFIG REQUIRED)
+find_package(protobuf CONFIG REQUIRED)
 find_package(toml11 CONFIG REQUIRED)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -77,14 +77,13 @@ target_sources(declvol PRIVATE
         app.manifest
 
         src/declvol/executable.cpp
-        src/declvol/v1/declvol.grpc.pb.cc
         src/declvol/v1/declvol.pb.cc
         )
 target_include_directories(declvol PRIVATE src)
 target_link_libraries(declvol PRIVATE
         argparse::argparse
         em::declvol_lib
-        gRPC::grpc++
+        protobuf::libprotobuf-lite
         )
 
 target_compile_definitions(declvol PRIVATE
@@ -103,11 +102,5 @@ install(FILES "LICENSE"
 # seem to get registered with CMake appropriately so they aren't installed
 # automatically with the RUNTIME like they should be. Copy them manually.
 install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/abseil_dll.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/cares.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/libcrypto-3-x64.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/libprotobuf.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/libssl-3-x64.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/re2.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/zlib1.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/libprotobuf-lite.dll
         DESTINATION ${CMAKE_INSTALL_BINDIR})

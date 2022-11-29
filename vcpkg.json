@@ -4,8 +4,13 @@
   "version": "0.1.0",
   "dependencies": [
     "argparse",
+    "boost-interprocess",
     "cppwinrt",
-    "grpc",
+    {
+      "name": "protobuf",
+      "default-features": false,
+      "features": []
+    },
     "toml11"
   ]
 }
